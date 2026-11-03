@@ -30,7 +30,19 @@ _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 def find_conflicts(ledger, contract) -> list:
     if not ledger.snapshots:
         return []
-    out = _table_conflicts(ledger, contract) + _statement_conflicts(ledger, contract)
+    ranked = _table_conflicts(ledger, contract) + _statement_conflicts(ledger, contract)
+    return _merge_duplicates([c for _, c in sorted(ranked, key=lambda rc: (rc[0], rc[1].topic))])
+
+
+def _merge_duplicates(conflicts: list) -> list:
+    """The same change shown under several product names (a special and its IRA twin) is one
+    contradiction; keep the plainest product's copy (fewest variant words)."""
+    seen, out = set(), []
+    for c in conflicts:
+        key = frozenset(c.values)
+        if key not in seen:
+            seen.add(key)
+            out.append(c)
     return sorted(out, key=lambda c: c.topic)
 
 
@@ -134,8 +146,9 @@ def _table_conflicts(ledger, c) -> list:
                                         quote=r.text[:200]))
         resolution = "; ".join(f"{r.label}{' (' + r.qual_text + ')' if r.qual_text else ''}: {', '.join(_value_text(r))}"
                                for r in winners[:6])
-        out.append(c.Conflict(topic=_topic(winner), values=values, sources=sources, resolution=resolution,
-                              reason=explain(winner, loser) + "; tiers and rate-vs-APY columns are kept as separate facts."))
+        out.append(((len(winner.quals.variants), len(_topic(winner))),
+                    c.Conflict(topic=_topic(winner), values=values, sources=sources, resolution=resolution,
+                               reason=explain(winner, loser) + "; tiers and rate-vs-APY columns are kept as separate facts.")))
     return out
 
 
@@ -160,6 +173,7 @@ def _template(text: str) -> tuple:
 
 
 _HEDGES = {stem(w) for w in "more than over nearly about almost exceeding approximately".split()}
+_BOILERPLATE_PAGES = 5   # a statement printed on this many dated pages is boilerplate, not a one-off detail
 _EVENT = re.compile(r"\b(will|was|were|happened|plans?|planned)\b", re.I)
 _ORDINAL = re.compile(rf"^(?:{_ORDINALS})$", re.I)
 
@@ -191,7 +205,7 @@ def _statement_conflicts(ledger, c) -> list:
         # ("It has 22 branch office locations") repeated across pages; one-off event details
         # ("winners will be notified by ...") are not contradictions.
         ordinal = any(_ORDINAL.match(k[i]) for k in by_value for i in differing)
-        if not ordinal and (len({r.page.url for r in rows}) < 3 or any(_EVENT.search(r.text) for r in rows)):
+        if not ordinal and (len({r.page.url for r in rows}) < _BOILERPLATE_PAGES or any(_EVENT.search(r.text) for r in rows)):
             continue
         winner = max(rows, key=truth_key)
         loser = max((r for r in rows if _counts(r.text) != _counts(winner.text)), key=truth_key)
@@ -204,8 +218,9 @@ def _statement_conflicts(ledger, c) -> list:
         for key in by_value:
             r = max(by_value[key], key=truth_key)
             sources.append(c.Source(url=r.page.url, snapshot_id=ledger.snapshots[r.page.first_snapshot].snapshot_id, quote=r.text[:200]))
-        out.append(c.Conflict(topic=winner.text[:120], values=values, sources=sources[:6], resolution=winner.text,
-                              reason=explain(winner, loser)))
+        out.append(((0, len(winner.text)),
+                    c.Conflict(topic=winner.text[:120], values=values, sources=sources[:6], resolution=winner.text,
+                               reason=explain(winner, loser))))
     return out
 
 

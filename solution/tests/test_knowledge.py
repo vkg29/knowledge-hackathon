@@ -208,7 +208,8 @@ class Refusals(unittest.TestCase):
 class Statements(unittest.TestCase):
     def test_newest_press_release_wins(self):
         pages = {f"/newsroom/release-{i}": NEWS.format(date=d, title=f"Release {i}", n=n)
-                 for i, (d, n) in enumerate([("March 1, 2023", 24), ("June 1, 2024", 23), ("May 5, 2026", 22)])}
+                 for i, (d, n) in enumerate([("March 1, 2023", 24), ("June 1, 2023", 24), ("June 1, 2024", 23),
+                                             ("March 3, 2025", 23), ("May 5, 2026", 22)])}
         ks = system(snap("01_2026-09-28_only", "2026-09-28", pages))
         ans = ks.answer("How many branches does the credit union have?")
         self.assertIn("22", ans.text)
