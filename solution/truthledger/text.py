@@ -43,7 +43,7 @@ def links(s: str) -> list[tuple[str, str]]:
 
 def norm(s: str) -> str:
     """Lower-case, unify dashes and whitespace."""
-    s = s.lower().replace("–", "-").replace("—", "-").replace("’", "'")
+    s = s.lower().replace("\u2013", "-").replace("\u2014", "-").replace("’", "'")
     return _SPACE.sub(" ", s).strip()
 
 
@@ -109,7 +109,7 @@ def money_values(s: str) -> list[float]:
 
 
 def strip_footnote(cell: str) -> str:
-    """'4.20%1' -> '4.20%', '5.19% APR1' -> '5.19% APR', '12.50% – 19.50%2' -> '12.50% – 19.50%'."""
+    """'4.20%1' -> '4.20%', '5.19% APR1' -> '5.19% APR', '12.50% \u2013 19.50%2' -> '12.50% \u2013 19.50%'."""
     cell = re.sub(r"%\s?[¹²³\d]{1,2}\b", "%", cell)
     cell = re.sub(r"\b(APR|APY)[¹²³\d]{1,2}\b", r"\1", cell)
     return cell.strip()

@@ -72,7 +72,8 @@ class SnapshotInfo:
 
 
 class Ledger:
-    def __init__(self) -> None:
+    def __init__(self, extra_rows=None) -> None:
+        self.extra_rows = extra_rows       # optional hook: page -> more RawRows (see hooks.py)
         self.snapshots: list[SnapshotInfo] = []
         self.versions: list[PageVersion] = []
         self.rows: list[Row] = []
@@ -104,7 +105,8 @@ class Ledger:
                         snap_index, page_has_ended(page.markdown))
         self.versions.append(v)
         rows = []
-        for raw in extract_rows(page.markdown):
+        raws = extract_rows(page.markdown) + (list(self.extra_rows(page)) if self.extra_rows else [])
+        for raw in raws:
             row = self._row(raw, v)
             row.pos = len(rows)
             rows.append(row)

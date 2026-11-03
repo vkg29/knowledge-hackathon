@@ -20,6 +20,7 @@ pip install -r requirements.txt
 python harness/run_eval.py --submission solution --eval eval/public_eval.jsonl
 python harness/run_eval.py --submission solution --eval eval/heldout_eval.jsonl      # our held-out set 1
 python harness/run_eval.py --submission solution --eval eval/heldout_v2_eval.jsonl   # our held-out set 2
+python harness/run_eval.py --submission solution --eval eval/heldout_v3_eval.jsonl   # our held-out set 3
 python -m unittest discover -s solution/tests -v                                     # unit tests
 ```
 
@@ -31,7 +32,7 @@ The first eval run unpacks the zips into `snapshots/` (ignored by git). Add
 ```
 solution/            the submission (solution.py, truthledger/ package, tests/, requirements.txt)
 harness/             the kit's scorer and contract (unchanged)
-eval/                public_eval.jsonl (kit) + heldout_eval.jsonl, heldout_v2_eval.jsonl (ours)
+eval/                public_eval.jsonl (kit) + heldout_eval.jsonl, heldout_v2/v3_eval.jsonl (ours)
 starter/             the kit's naive starter (unchanged)
 snapshots/README.md  what each snapshot is (the snapshot folders themselves are not committed)
 ```

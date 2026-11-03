@@ -19,7 +19,6 @@ import re
 from collections import defaultdict
 
 from .rules import explain, is_live, truth_key
-from .text import norm
 from .vocab import STOPWORDS, stem, tokens
 
 _RATE_METRICS = ("rate", "dividend rate", "APY", "APR", "fee")
@@ -76,7 +75,7 @@ def _value_text(row) -> list[str]:
     return [f"{_DASH.sub(' - ', v)} {m}" for m, v in row.values if m in _RATE_METRICS and "%" in v]
 
 
-_DASH = re.compile(r"\s*[–—-]\s*")
+_DASH = re.compile(r"\s*[\u2013\u2014-]\s*")
 
 
 def _clusters(rows: list) -> list[list]:

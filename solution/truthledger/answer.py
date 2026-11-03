@@ -327,7 +327,8 @@ class Answerer:
 
 
 # ---- module helpers ----------------------------------------------------------------------
-_HOURS_WORDS = {stem(w) for w in "hour lobby drive up thru through open close branch branches office time times what general typical usual regular".split()}
+_HOURS_WORDS = {stem(w) for w in ("hour lobby drive up thru through open close branch branches office time times what "
+                                  "general typical usual regular").split()}
 _URL_WORDS = {stem(w) for w in "link url web page website address site".split()}
 
 

@@ -5,16 +5,17 @@ from typing import Optional
 
 from .answer import Answerer
 from .conflicts import find_conflicts
+from .hooks import Hooks, safe_phrase
 from .ledger import Ledger
-
 
 _MAX_SOURCES = 5
 
 
 class LedgerKnowledge:
-    def __init__(self, contract) -> None:
+    def __init__(self, contract, hooks: Optional[Hooks] = None) -> None:
         self._c = contract            # the harness's contract module (Answer, Source, Conflict)
-        self.ledger = Ledger()
+        self.hooks = hooks or Hooks()  # optional AI steps; the default does nothing
+        self.ledger = Ledger(extra_rows=self.hooks.extra_rows)
         self._answerer: Optional[Answerer] = None
         self._cache: dict = {}
 
@@ -38,7 +39,7 @@ class LedgerKnowledge:
         c = self._c
         if not self.ledger.snapshots:
             return c.Answer(text="I don't know yet; nothing has been loaded.", confident=False)
-        res, k = self._engine().answer(question, as_of)
+        res, k = self._engine().answer(self.hooks.rewrite_question(question), as_of)
         snap = self.ledger.snapshots[k].snapshot_id
         sources, seen = [], set()
         for row in list(res.rows) + list(res.support):
@@ -47,7 +48,8 @@ class LedgerKnowledge:
             seen.add(row.page.url)
             sid = snap if self.ledger.in_crawl(row, k) else self.ledger.snapshots[row.page.first_snapshot].snapshot_id
             sources.append(c.Source(url=row.page.url, snapshot_id=sid, quote=row.text[:240]))
-        return c.Answer(text=res.text, sources=sources, confident=res.confident, conflict_note=res.note)
+        text = safe_phrase(self.hooks, question, res.text) if res.confident else res.text
+        return c.Answer(text=text, sources=sources, confident=res.confident, conflict_note=res.note)
 
     def conflicts(self):
         return find_conflicts(self.ledger, self._c)

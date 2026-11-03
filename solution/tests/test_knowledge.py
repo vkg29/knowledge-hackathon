@@ -12,9 +12,10 @@ sys.path.insert(0, str(ROOT / "harness"))
 sys.path.insert(0, str(ROOT / "solution"))
 
 from contract import Page, Snapshot  # noqa: E402
-from solution import build  # noqa: E402
 from truthledger.qualifiers import parse_question_qualifiers, parse_row_qualifiers  # noqa: E402
 from truthledger.text import effective_date, find_dates  # noqa: E402
+
+from solution import build  # noqa: E402
 
 SITE = "https://cu.example"
 
@@ -39,8 +40,8 @@ Share Savings
 | Account Type | Balance Tier | Dividend Rate | Annual Percentage Yield (APY) |
 | --- | --- | --- | --- |
 | Share Savings | $25,000+ | 0.20% | 0.20% |
-| Share Savings | $10,000 – $24,999.99 | 0.15% | 0.15% |
-| Share Savings | $0 – $9,999.99 | 0.05% | 0.05% |
+| Share Savings | $10,000 \u2013 $24,999.99 | 0.15% | 0.15% |
+| Share Savings | $0 \u2013 $9,999.99 | 0.05% | 0.05% |
 
 Rates are effective as of 06/02/2026 and are subject to change without notice.
 """
@@ -180,7 +181,7 @@ class Qualifiers(unittest.TestCase):
         q = parse_row_qualifiers("2024-27 Model Year", [("Term", "60 Months")], ["Auto Loans"])
         self.assertEqual(q.years, (2024, 2027))
         self.assertEqual(q.terms, frozenset({60}))
-        q = parse_row_qualifiers("Share Savings", [("Balance Tier", "$10,000 – $24,999.99")], [])
+        q = parse_row_qualifiers("Share Savings", [("Balance Tier", "$10,000 \u2013 $24,999.99")], [])
         self.assertEqual(q.amount, (10000.0, 24999.99))
         q = parse_row_qualifiers("17 Month Fixed Jumbo Certificate Special", [], ["Special Certificates"])
         self.assertIn("jumbo", q.variants)
@@ -252,6 +253,23 @@ class Determinism(unittest.TestCase):
             return [(a.text, [s.url for s in a.sources], a.confident) for a in map(ks.answer, self.QUESTIONS)]
         first = run()
         self.assertEqual(first, run())
+
+
+class HookSeam(unittest.TestCase):
+    def test_phrasing_hook_cannot_change_figures(self):
+        from truthledger.hooks import Hooks, safe_phrase
+
+        class Rewords(Hooks):
+            def phrase(self, question, text):
+                return "Good news! " + text
+
+        class ChangesValue(Hooks):
+            def phrase(self, question, text):
+                return text.replace("3.40%", "3.50%")
+
+        text = "12 Month: 3.40% APY."
+        self.assertEqual(safe_phrase(Rewords(), "q", text), "Good news! " + text)
+        self.assertEqual(safe_phrase(ChangesValue(), "q", text), text)
 
 
 class TextHelpers(unittest.TestCase):

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from .text import NUMBER_WORDS, money_values, norm
@@ -30,8 +30,8 @@ VARIANT_WORDS = {
 
 _NUM = r"(\d+|" + "|".join(sorted(NUMBER_WORDS, key=len, reverse=True)) + r")"
 _TERM = re.compile(_NUM + r"[\s-]*(month|mo|year|yr)s?\b", re.I)
-_YEAR_RANGE = re.compile(r"\b(19|20)(\d\d)\s*[-–]\s*(\d{2,4})\s+model\s+year", re.I)
-_YEAR_RANGE_AFTER = re.compile(r"model\s+year\s+((?:19|20)\d\d)\s*[-–]\s*(\d{2,4})", re.I)
+_YEAR_RANGE = re.compile(r"\b(19|20)(\d\d)\s*[-\u2013]\s*(\d{2,4})\s+model\s+year", re.I)
+_YEAR_RANGE_AFTER = re.compile(r"model\s+year\s+((?:19|20)\d\d)\s*[-\u2013]\s*(\d{2,4})", re.I)
 _YEAR_OLDER = re.compile(r"\b((?:19|20)\d\d)\s+model\s+year\s*\(and older\)", re.I)
 _YEAR_SINGLE = re.compile(r"\b((?:19|20)\d\d)\b")
 
@@ -83,8 +83,8 @@ def parse_variants(text: str) -> frozenset:
 
 
 def parse_amount_range(text: str) -> Optional[tuple]:
-    """'$10,000 – $24,999.99' -> (10000, 24999.99); '$25,000+' -> (25000, inf); '$300,000 or less' -> (0, 300000)."""
-    t = text.replace("–", "-").replace("—", "-")
+    """'$10,000 \u2013 $24,999.99' -> (10000, 24999.99); '$25,000+' -> (25000, inf); '$300,000 or less' -> (0, 300000)."""
+    t = text.replace("\u2013", "-").replace("\u2014", "-")
     t = _SCALED.sub(lambda m: "$" + format(float(m.group(1).replace(",", "")) * _SCALE[m.group(2).lower()], ".2f"), t)
     vals = money_values(t)
     if not vals:

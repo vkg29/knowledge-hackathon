@@ -19,15 +19,20 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .qualifiers import Qualifiers, parse_row_qualifiers
-from .text import clean_inline, effective_date, has_digit, links, norm, percents, strip_footnote
+from .text import clean_inline, effective_date, has_digit, links, percents, strip_footnote
 
 _SKIP_SECTIONS = re.compile(r"^(handpicked for you|related (posts|articles)|you may also like|recent posts)$", re.I)
 _FAQ_LEVEL = 7   # below every markdown heading level
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z“\"(])")
 _HOURS_HEAD = re.compile(r"^(lobby|drive[- ]?up|drive[- ]?through|lobby hours|drive-up hours)\s*:?$", re.I)
 _DAY = r"(mon|tue|wed|thu|fri|sat|sun)[a-z]*"
-_HOURS_LINE = re.compile(rf"^{_DAY}(\s*(-|–|—|through|to|&|and|,)\s*{_DAY})*\s*:", re.I)
+_HOURS_LINE = re.compile(rf"^{_DAY}(\s*(-|\u2013|\u2014|through|to|&|and|,)\s*{_DAY})*\s*:", re.I)
 _HOURS_INLINE = re.compile(rf"^(lobby|drive[- ]?up)\s+{_DAY}", re.I)
+_HOURS_LABEL = re.compile(r"^(lobby|drive[- ]?up)\b.*:\s*$", re.I)
+
+
+def _is_hours_line(text: str) -> bool:
+    return bool(_HOURS_HEAD.match(text) or _HOURS_LINE.match(text) or _HOURS_LABEL.match(text) or _HOURS_INLINE.match(text))
 
 # Column headers that name a qualifier rather than a value.
 _QUAL_HEADERS = re.compile(r"(account type|balance tier|tier|term|loan program|program|certificate|card type|"
@@ -132,7 +137,7 @@ def _table_rows(block: _Block, caption: list[str], section: str, effective: Opti
         values, qual_cells = [], []
         for j, cell in enumerate(cells[1:], start=1):
             head = header[j] if j < len(header) else ""
-            if not cell or cell in ("—", "-"):
+            if not cell or cell in ("\u2014", "-"):
                 continue
             metric = _metric_name(head, cell) if (percents(cell) or "$" in cell or re.fullmatch(r"\d+(\.\d+)?", cell)) else None
             if metric and (metric == "minimum to open" or not (_QUAL_HEADERS.search(head) and not percents(cell))):
@@ -274,8 +279,7 @@ def extract_rows(markdown: str) -> list[RawRow]:
         if (_HOURS_HEAD.match(b.text) or _HOURS_INLINE.match(b.text)
                 or (_HOURS_LINE.match(b.text) and i + 1 < len(blocks) and _HOURS_LINE.match(blocks[i + 1].text))):
             j, parts, current = i, [], None
-            while j < len(blocks) and blocks[j].kind == "line" and (_HOURS_HEAD.match(blocks[j].text) or _HOURS_LINE.match(blocks[j].text)
-                                                                     or re.match(r"^(lobby|drive[- ]?up)\b.*:\s*$|^(lobby|drive[- ]?up)\s+" + _DAY, blocks[j].text, re.I)):
+            while j < len(blocks) and blocks[j].kind == "line" and _is_hours_line(blocks[j].text):
                 t = blocks[j].text
                 m = re.match(r"^(lobby|drive[- ]?up|drive[- ]?through)(?: hours)?\s*:?\s*(.*)$", t, re.I)
                 if m:
@@ -290,7 +294,7 @@ def extract_rows(markdown: str) -> list[RawRow]:
                 j += 1
             if any(p[1] for p in parts):
                 text = "; ".join(f"{name}: {', '.join(days)}" for name, days in parts if days)
-                text = text.replace("–", "-").replace("—", "-")
+                text = text.replace("\u2013", "-").replace("\u2014", "-")
                 out.append(RawRow("hours", section, text, section))
                 i = j
                 continue

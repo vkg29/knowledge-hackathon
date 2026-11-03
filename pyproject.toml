@@ -1,0 +1,7 @@
+[tool.ruff]
+line-length = 150
+# harness/ and starter/ are the participant kit, kept byte-for-byte.
+extend-exclude = ["harness", "starter", "snapshots"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
