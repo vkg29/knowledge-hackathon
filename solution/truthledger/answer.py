@@ -31,6 +31,7 @@ _ANSWER_SHAPES = {
     "phone": re.compile(r"\(?\b\d{3}\)?[-.\s]\d{3}[-.]\d{4}\b"),
     "date": re.compile(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|\b\d{1,2}/\d{1,2}/\d{2,4}\b", re.I),
 }
+_LABEL_LINE = re.compile(r"^([A-Za-z][A-Za-z ’'/-]{1,30}):\s*\S")
 _RATE_VALUE = re.compile(r"\d(?:\.\d+)?\s?%\*?\s*(?:\(?apy|\(?apr|annual percentage|dividend|rate|interest|introductory|intro|fixed|variable)|"
                          r"(?:apy|apr|rate|yield) of \d", re.I)
 
@@ -41,6 +42,7 @@ class Result:
     rows: list = field(default_factory=list)
     confident: bool = True
     note: Optional[str] = None
+    support: list = field(default_factory=list)   # other pages that state the same winning value
 
 
 class Answerer:
@@ -158,8 +160,8 @@ class Answerer:
             rows = [r for _, r in winners.values() if _same_table(r, best)]
         elif _catalogue(q):
             rows = [r for _, r in winners.values()]
-        else:
-            rows = [r for _, r in winners.values() if r.page.vid == best.page.vid]
+        else:   # everything the truest page lists for this product
+            rows = [r for _, r in cands if r.page.vid == best.page.vid]
         rows = _dedupe(sorted(rows, key=lambda r: (r.page.vid != best.page.vid, r.page.url, r.pos)))
         if q.superlative:
             rows = [_extreme(rows, q)]
@@ -170,7 +172,10 @@ class Answerer:
         if losers:
             loser = max(losers, key=truth_key)
             note = "Other pages show a different figure; kept the value from the truest source: " + explain(best, loser) + "."
-        return Result("; ".join(_render(r, q) for r in rows) + ".", rows, note=note)
+        keys = {(_fact_key(r), _value(r, q)) for r in rows}
+        support = [r for _, r in sorted(cands, key=lambda c: (-c[1].authority, c[1].page.url))
+                   if (_fact_key(r), _value(r, q)) in keys and r.page.vid not in {x.page.vid for x in rows}]
+        return Result("; ".join(_render(r, q) for r in rows) + ".", rows, note=note, support=support)
 
     # ---- prose ---------------------------------------------------------------------------
     def _prose(self, q: Question, k: int, on_date: str, need_percent: bool = False) -> Optional[Result]:
@@ -189,6 +194,8 @@ class Answerer:
                 continue
             if q.quals.terms and not (q.quals.terms & parse_terms(row.text)):
                 continue
+            if _LABEL_LINE.match(row.text) and set(tokens(_LABEL_LINE.match(row.text).group(1))) <= set(q.words):
+                s *= 1.5   # "Routing Number: 273974581" states exactly what was asked
             scored.append((s * _PROSE_WEIGHT[row.authority], row))
         if not scored:
             return None
@@ -208,16 +215,46 @@ class Answerer:
         # the truest, newest copy wins.
         tmpl = _template(best.text)
         rivals = [r for s, r in scored[:60] if s >= 0.6 * best_s and _similar(_template(r.text), tmpl)]
-        winner = max(rivals, key=truth_key) if rivals else best
+        disagree = any(_NUMBER.findall(r.text) != _NUMBER.findall(best.text) for r in rivals)
+        winner = max(rivals, key=truth_key) if disagree else best
+        if winner is best:
+            # Near-ties on one page: the earliest mention is usually the lead/definition.
+            cov = self._coverage(q, best)
+            lead = [r for s, r in scored[:20] if r.page.vid == best.page.vid and s >= 0.7 * best_s
+                    and not _is_header(r.text) and self._coverage(q, r) >= cov]
+            winner = min(lead, key=lambda r: r.pos)
         losers = [r for r in rivals if _NUMBER.findall(r.text) != _NUMBER.findall(winner.text)]
         note = None
         if losers:
             note = "Older or less authoritative pages state this differently; kept: " + explain(winner, max(losers, key=truth_key)) + "."
-        return Result(self._passage(winner), [winner], note=note)
+        same = [r for r in rivals if r is not winner and _NUMBER.findall(r.text) == _NUMBER.findall(winner.text)]
+        support = sorted(same, key=lambda r: (-r.authority, r.page.url))
+        text = self._passage(winner)
+        if q.wants_action:
+            link = self._action_link(q, winner)
+            if link and link not in text:
+                text += f" You can get started here: {link}"
+        return Result(text, [winner], note=note, support=support)
+
+    def _action_link(self, q: Question, row: Row) -> Optional[str]:
+        """The call-to-action link that goes with a passage, preferring one the question names."""
+        siblings = self.ledger.rows_by_version[row.page.vid]
+        found = [(a, u) for r in siblings[row.pos: row.pos + 4] if r.section == row.section for a, u in r.links if u.startswith("http")]
+        if not found:
+            return None
+        words = set(q.words)
+        best = max(found, key=lambda au: (sum(t in words for t in tokens(au[0])), -found.index(au)))
+        return _clean_link(best[1])
 
     def _passage(self, row: Row, limit: int = 420) -> str:
         """The winning sentence plus the sentences that follow it in the same paragraph or list."""
         siblings = self.ledger.rows_by_version[row.page.vid]
+        if row.section.endswith("?"):   # an FAQ answer reads best from its first sentence
+            first = row.pos
+            while first > 0 and siblings[first - 1].section == row.section and siblings[first - 1].kind == "text":
+                first -= 1
+            if row.pos - first <= 2 and not any(_is_header(r.text) for r in siblings[first:row.pos]):
+                row = siblings[first]
         parts = [_sentence(row.text)]
         size = len(parts[0])
         for nxt in siblings[row.pos + 1: row.pos + 6]:
@@ -251,7 +288,7 @@ class Answerer:
                 example.setdefault(part, r)
         if not schedules:
             return None
-        ordered = sorted(schedules, key=lambda p: (-schedules[p], p))[:3]
+        ordered = sorted(schedules, key=lambda p: (-schedules[p], p))[:5]
         text = f"{kind} hours vary by branch. Most branches: {ordered[0]}."
         if len(ordered) > 1:
             text += " Other branches: " + " | ".join(ordered[1:]) + "."

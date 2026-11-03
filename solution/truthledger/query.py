@@ -34,6 +34,7 @@ class Question:
     names: list              # capitalised names in the question ('Galena', 'Mullan Avenue')
     wants_number: bool       # "how many", "how much", "what number"
     answer_type: Optional[str]  # "address" | "phone" | "date" | None: the shape the answer must have
+    wants_action: bool       # "how do I ...", "where can I ...": a link to act on helps
 
 
 def parse(question: str) -> Question:
@@ -74,6 +75,7 @@ def parse(question: str) -> Question:
         as_of_hint=as_of_hint,
         names=_names(q),
         answer_type=_answer_type(low),
+        wants_action=bool(re.search(r"\bhow (do|can|should) i\b|\bwhere (do|can|should) i\b|\bonline\b|\bapply\b|\bsign up\b", low)),
         wants_number=bool(re.search(r"\bhow (many|much|long)\b(?! times)|\bnumber of\b|\bwhat (number|percent)|^when\b", low)),
     )
 

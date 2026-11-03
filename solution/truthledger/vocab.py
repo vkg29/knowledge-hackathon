@@ -51,7 +51,8 @@ SYNONYMS = {
     "join": ["member", "membership"], "membership": ["member", "join"], "eligible": ["membership", "join"],
     "student": ["school", "college"], "university": ["college", "school", "student"],
     "employee": ["employees"], "employees": ["employee"],
-    "wallet": ["pay"], "mobile": ["app"],
+    "wallet": ["pay"], "mobile": ["app", "digital"], "digital": ["mobile", "online"],
+    "load": ["add"], "add": ["load"],
     "routing": ["aba"],
 }
 
@@ -89,7 +90,7 @@ PREFIX = 6
 
 def with_prefixes(toks: list[str]) -> list[str]:
     """Add a truncated form of long words so 'recognition' still finds 'recognized'."""
-    return toks + [t[:PREFIX] + "*" for t in toks if len(t) > PREFIX and t.isalpha()]
+    return toks + [t[:PREFIX] + "*" for t in toks if len(t) >= PREFIX and t.isalpha()]
 
 
 def expand(toks: list[str]) -> dict[str, float]:
@@ -101,7 +102,7 @@ def expand(toks: list[str]) -> dict[str, float]:
         for syn in _STEMMED_SYNONYMS.get(t, []):
             weights.setdefault(syn, 0.5)
     for t in list(weights):
-        if len(t) > PREFIX and t.isalpha():
+        if len(t) >= PREFIX and t.isalpha():
             weights.setdefault(t[:PREFIX] + "*", 0.5 * weights[t])
     return weights
 

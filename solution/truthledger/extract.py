@@ -27,6 +27,7 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z“\"(])")
 _HOURS_HEAD = re.compile(r"^(lobby|drive[- ]?up|drive[- ]?through|lobby hours|drive-up hours)\s*:?$", re.I)
 _DAY = r"(mon|tue|wed|thu|fri|sat|sun)[a-z]*"
 _HOURS_LINE = re.compile(rf"^{_DAY}(\s*(-|–|—|through|to|&|and|,)\s*{_DAY})*\s*:", re.I)
+_HOURS_INLINE = re.compile(rf"^(lobby|drive[- ]?up)\s+{_DAY}", re.I)
 
 # Column headers that name a qualifier rather than a value.
 _QUAL_HEADERS = re.compile(r"(account type|balance tier|tier|term|loan program|program|certificate|card type|"
@@ -268,7 +269,8 @@ def extract_rows(markdown: str) -> list[RawRow]:
             i += 1
             continue
         # Branch hours: a "Lobby" / "Drive-up" label followed by day: time lines.
-        if _HOURS_HEAD.match(b.text) or (_HOURS_LINE.match(b.text) and i + 1 < len(blocks) and _HOURS_LINE.match(blocks[i + 1].text)):
+        if (_HOURS_HEAD.match(b.text) or _HOURS_INLINE.match(b.text)
+                or (_HOURS_LINE.match(b.text) and i + 1 < len(blocks) and _HOURS_LINE.match(blocks[i + 1].text))):
             j, parts, current = i, [], None
             while j < len(blocks) and blocks[j].kind == "line" and (_HOURS_HEAD.match(blocks[j].text) or _HOURS_LINE.match(blocks[j].text)
                                                                      or re.match(r"^(lobby|drive[- ]?up)\b.*:\s*$|^(lobby|drive[- ]?up)\s+" + _DAY, blocks[j].text, re.I)):
@@ -290,6 +292,11 @@ def extract_rows(markdown: str) -> list[RawRow]:
                 out.append(RawRow("hours", section, text, section))
                 i = j
                 continue
+        if b.kind == "line" and _is_link_only(b.raw) and out and out[-1].kind == "text" and out[-1].section == section:
+            # A button line ("[Join Dupaco](https://join.dupaco.com/)") belongs to the text above it.
+            out[-1].links = out[-1].links + tuple(links(b.raw))
+            i += 1
+            continue
         if b.kind == "line":
             fact = _label_value_row(b.text, heads, section)
             if fact:

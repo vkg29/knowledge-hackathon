@@ -16,6 +16,7 @@ K1, B = 1.2, 0.5
 
 
 CONTEXT_WEIGHT = 0.4
+FAQ_WEIGHT = 0.8
 
 
 def row_document(row) -> dict[str, float]:
@@ -30,6 +31,10 @@ def row_document(row) -> dict[str, float]:
     ctx = " ".join([row.subject, row.section, row.page.title.split("|")[0]])
     for t in dict.fromkeys(with_prefixes([t for t in tokens(ctx) if t not in STOPWORDS])):
         doc[t] = doc.get(t, 0.0) + CONTEXT_WEIGHT
+    faq = row.section.rsplit(" > ", 1)[-1]
+    if faq.endswith("?"):   # an FAQ answer is findable by its question, which is how members ask
+        for t in dict.fromkeys(with_prefixes([t for t in tokens(faq) if t not in STOPWORDS])):
+            doc[t] = doc.get(t, 0.0) + FAQ_WEIGHT - CONTEXT_WEIGHT
     return doc
 
 

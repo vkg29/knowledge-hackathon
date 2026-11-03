@@ -8,6 +8,9 @@ from .conflicts import find_conflicts
 from .ledger import Ledger
 
 
+_MAX_SOURCES = 5
+
+
 class LedgerKnowledge:
     def __init__(self, contract) -> None:
         self._c = contract            # the harness's contract module (Answer, Source, Conflict)
@@ -38,8 +41,8 @@ class LedgerKnowledge:
         res, k = self._engine().answer(question, as_of)
         snap = self.ledger.snapshots[k].snapshot_id
         sources, seen = [], set()
-        for row in res.rows:
-            if row.page.url in seen:
+        for row in list(res.rows) + list(res.support):
+            if row.page.url in seen or len(sources) >= _MAX_SOURCES:
                 continue
             seen.add(row.page.url)
             sid = snap if self.ledger.in_crawl(row, k) else self.ledger.snapshots[row.page.first_snapshot].snapshot_id
