@@ -24,7 +24,7 @@ Certificates
 
 Regular Certificates
 
-| Certificate | Dividend Rate | Annual Percentage Yield (APY) | Min. to Earn |
+| Certificate | Dividend Rate | Annual Percentage Yield (APY) | Min. to Open |
 | --- | --- | --- | --- |
 | 12 Month | {r12}% | {a12}%1 | $1,000.00 |
 | 6 Month | 3.37% | 3.40%1 | $1,000.00 |
@@ -167,6 +167,14 @@ class Qualifiers(unittest.TestCase):
     def test_number_words(self):
         self.assertEqual(parse_question_qualifiers("six month certificate").terms, frozenset({6}))
         self.assertEqual(parse_question_qualifiers("30-year mortgage").terms, frozenset({360}))
+
+    def test_scaled_amounts(self):
+        self.assertEqual(parse_question_qualifiers("APY for a $2 million balance").amount, (2_000_000.0, 2_000_000.0))
+
+    def test_minimum_to_open_is_a_table_value(self):
+        ans = self.ks.answer("What is the minimum deposit to open a 12 month certificate?")
+        self.assertIn("$1,000.00", ans.text)
+        self.assertNotIn("%", ans.text)
 
     def test_row_qualifiers(self):
         q = parse_row_qualifiers("2024-27 Model Year", [("Term", "60 Months")], ["Auto Loans"])

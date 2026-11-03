@@ -109,6 +109,8 @@ def _metric_name(header: str, cell: str) -> Optional[str]:
         return "rate"
     if "fee" in h or "cost" in h or "price" in h:
         return "fee"
+    if re.search(r"min\.? to open|minimum (to open|opening|deposit)", h):
+        return "minimum to open"
     if "payment" in h:
         return "payment example"
     if "point" in h:
@@ -133,7 +135,7 @@ def _table_rows(block: _Block, caption: list[str], section: str, effective: Opti
             if not cell or cell in ("—", "-"):
                 continue
             metric = _metric_name(head, cell) if (percents(cell) or "$" in cell or re.fullmatch(r"\d+(\.\d+)?", cell)) else None
-            if metric and not (_QUAL_HEADERS.search(head) and not percents(cell)):
+            if metric and (metric == "minimum to open" or not (_QUAL_HEADERS.search(head) and not percents(cell))):
                 value = cell if metric != "points" else cell
                 value = re.sub(r"\s*(APR|APY)$", "", value).strip()
                 values.append((metric, value))

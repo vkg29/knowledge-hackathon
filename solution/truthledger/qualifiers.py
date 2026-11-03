@@ -36,6 +36,10 @@ _YEAR_OLDER = re.compile(r"\b((?:19|20)\d\d)\s+model\s+year\s*\(and older\)", re
 _YEAR_SINGLE = re.compile(r"\b((?:19|20)\d\d)\b")
 
 
+_SCALE = {"million": 1e6, "mil": 1e6, "m": 1e6, "thousand": 1e3, "k": 1e3}
+_SCALED = re.compile(r"\$\s?(\d+(?:\.\d+)?)\s*(million|mil|thousand|m|k)\b", re.I)
+
+
 @dataclass(frozen=True)
 class Qualifiers:
     terms: frozenset = frozenset()            # months, e.g. {6} or {360}
@@ -81,6 +85,7 @@ def parse_variants(text: str) -> frozenset:
 def parse_amount_range(text: str) -> Optional[tuple]:
     """'$10,000 – $24,999.99' -> (10000, 24999.99); '$25,000+' -> (25000, inf); '$300,000 or less' -> (0, 300000)."""
     t = text.replace("–", "-").replace("—", "-")
+    t = _SCALED.sub(lambda m: "$" + format(float(m.group(1).replace(",", "")) * _SCALE[m.group(2).lower()], ".2f"), t)
     vals = money_values(t)
     if not vals:
         bare = re.findall(r"\b(\d{1,3}(?:,\d{3})+|\d{4,})\b(?!\s*model)", t)

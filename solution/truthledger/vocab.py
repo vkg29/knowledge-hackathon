@@ -35,7 +35,7 @@ finance financed financing borrow borrowing borrowed charged carry carries come 
 """.split())
 
 SYNONYMS = {
-    "cd": ["certificate"], "cds": ["certificate"], "deposit": ["certificate"],
+    "cd": ["certificate"], "cds": ["certificate"],
     "certificate": ["term", "share"],
     "mortgage": ["home", "loan", "conventional", "fixed"], "mortgages": ["home", "loan", "conventional", "fixed"],
     "auto": ["vehicle", "car", "motorcycle"], "car": ["auto", "vehicle"], "vehicle": ["auto", "car"],

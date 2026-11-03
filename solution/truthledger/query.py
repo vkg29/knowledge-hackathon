@@ -52,9 +52,12 @@ def parse(question: str) -> Question:
         metric = "APR"
     elif re.search(r"\bdividend", low):
         metric = "dividend rate"
+    elif re.search(r"\bmin(imum|\.)?\b.*\bopen|\bopen\b.*\bmin(imum|\.)?\b|how much .*\bto open\b", low):
+        metric = "minimum to open"
     rate_intent = bool(_RATE_WORDS.search(low)) and not re.search(r"\binterest(ed)? in\b", low)
-    # "What does the 10-month special pay?" asks for a rate without saying "rate".
-    rate_implied = not rate_intent and bool(_EARN_WORDS.search(low) and _RATE_PRODUCTS.search(low))
+    # "What does the 10-month special pay?" asks for a table value without saying "rate".
+    rate_implied = not rate_intent and (bool(_EARN_WORDS.search(low) and _RATE_PRODUCTS.search(low))
+                                        or metric == "minimum to open")
     hours = None
     if (re.search(r"\bhours?\b|what time", low)
             or re.search(r"\b(lobby|lobbies|drive[- ]?(up|thru|through))\b.*\bopen\b|\bopen\b.*\b(lobby|lobbies)\b", low)) and not rate_intent:
@@ -88,7 +91,8 @@ def parse(question: str) -> Question:
     )
 
 
-_NOT_NAMES = {"dupaco", "i", "visa", "apy", "apr", "ira", "hsa", "cd", "lobby", "hours", "drive", "branch",
+_NOT_NAMES = {"dupaco", "i", "visa", "apy", "apr", "apys", "aprs", "ira", "iras", "hsa", "cd", "cds", "aba", "faq",
+              "lobby", "hours", "drive", "branch", "usa", "us",
               "what", "when", "where", "who", "how", "is", "are", "can", "do", "does", "the", "a", "my", "mobile",
               "shine", "online", "credit", "union", "monday", "tuesday", "wednesday", "thursday", "friday",
               "saturday", "sunday"} | set(MONTHS)
@@ -97,7 +101,7 @@ _NOT_NAMES = {"dupaco", "i", "visa", "apy", "apr", "ira", "hsa", "cd", "lobby", 
 def _answer_type(low: str) -> Optional[str]:
     if re.search(r"\baddress\b|\blocated\b|\bwhere('s| is| are)\b.*\bbranch\b", low) and "email" not in low and "web" not in low:
         return "address"
-    if re.search(r"\bphone number\b|\btelephone\b|\bnumber (to|i can|should i) (call|reach)\b|\bcall (you|dupaco)\b", low):
+    if re.search(r"\bphone number\b|\btelephone\b|\bnumber\b.*\b(call|reach)\b|\bcall\b.*\bnumber\b|\bcall (you|dupaco)\b", low):
         return "phone"
     if re.search(r"\brouting\b|\baba\b", low):
         return "routing"
@@ -117,7 +121,7 @@ def _names(question: str) -> list:
     out = []
     for w in words[1:]:
         low = w.lower().removesuffix("'s")
-        if w[0].isupper() and low not in _NOT_NAMES and not w.isupper():
+        if w[0].isupper() and low not in _NOT_NAMES and (not w.isupper() or len(w) >= 3):
             out.extend(t for t in tokens(low) if t not in STOPWORDS)
     return list(dict.fromkeys(out))
 

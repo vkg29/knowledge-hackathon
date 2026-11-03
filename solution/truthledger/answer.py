@@ -386,7 +386,7 @@ def _value(r: Row, q: Question) -> tuple:
 def _wanted_metrics(q: Question) -> set:
     if q.metric and q.metric != "rate":
         return {q.metric}
-    return {"rate", "APR", "APY", "dividend rate", "fee"}
+    return {"rate", "APR", "APY", "dividend rate", "fee"}   # a "minimum to open" is shown only when asked
 
 
 def _dedupe(rows: list[Row]) -> list[Row]:
@@ -416,7 +416,7 @@ def _extreme(rows: list[Row], q: Question) -> Row:
 
 def _render(r: Row, q: Question) -> str:
     wanted = _wanted_metrics(q)
-    vals = [(m, v) for m, v in r.values if m in wanted] or [(m, v) for m, v in r.values if m not in ("points", "payment example")]
+    vals = [(m, v) for m, v in r.values if m in wanted] or [(m, v) for m, v in r.values if m not in _NEVER_SHOWN]
     label = r.label
     if r.caption and not (set(tokens(r.caption)) - _CAPTION_FILLER) & set(tokens(label)):
         label = f"{r.caption} - {label}"
@@ -425,6 +425,7 @@ def _render(r: Row, q: Question) -> str:
     return f"{label}: " + ", ".join(f"{v} {m}" for m, v in vals)
 
 
+_NEVER_SHOWN = ("points", "payment example", "minimum to open")
 _CAPTION_FILLER = {stem(w) for w in "rates rate loans loan accounts account savings regular special".split()}
 
 
