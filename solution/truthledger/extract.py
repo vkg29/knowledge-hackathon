@@ -293,8 +293,11 @@ def extract_rows(markdown: str) -> list[RawRow]:
                 i = j
                 continue
         if b.kind == "line" and _is_link_only(b.raw) and out and out[-1].kind == "text" and out[-1].section == section:
-            # A button line ("[Join Dupaco](https://join.dupaco.com/)") belongs to the text above it.
-            out[-1].links = out[-1].links + tuple(links(b.raw))
+            # A button line ("[Join Dupaco](https://join.dupaco.com/)") belongs to the paragraph above it.
+            for row in reversed(out):
+                if row.kind != "text" or row.block != out[-1].block:
+                    break
+                row.links = row.links + tuple(links(b.raw))
             i += 1
             continue
         if b.kind == "line":

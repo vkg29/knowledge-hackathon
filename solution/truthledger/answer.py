@@ -199,6 +199,8 @@ class Answerer:
                 continue
             if _LABEL_LINE.match(row.text) and set(tokens(_LABEL_LINE.match(row.text).group(1))) <= set(q.words):
                 s *= 1.5   # "Routing Number: 273974581" states exactly what was asked
+            if q.wants_action and any(set(tokens(a)) & set(q.words) for a, u in row.links if u.startswith("http")):
+                s *= 1.3   # a passage whose button does what the member asked ("Join Dupaco")
             scored.append((s * _PROSE_WEIGHT[row.authority], row))
         if not scored:
             return None
@@ -375,11 +377,6 @@ def _fact_key(r: Row) -> tuple:
 
 def _catalogue(q: Question) -> bool:
     return bool(re.search(r"\b(what|which)\b.*\b(do you|does dupaco|are)\b.*\b(offer|have|available)\b|\ball\b|\btypes? of\b", q.raw, re.I))
-
-
-def _overlaps(a: Row, b: Row) -> bool:
-    """Do two rows describe the same tier of the same kind of product?"""
-    return a.quals.terms == b.quals.terms and a.quals.variants == b.quals.variants
 
 
 def _value(r: Row, q: Question) -> tuple:

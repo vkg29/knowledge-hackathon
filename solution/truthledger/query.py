@@ -43,7 +43,8 @@ class Question:
 def parse(question: str) -> Question:
     q = question.strip()
     low = norm(q)
-    toks = content_tokens(q)
+    plain = re.sub(r"\bcredit unions?\b", " ", q, flags=re.I)   # "the credit union" means Dupaco itself
+    toks = content_tokens(plain)
     metric = None
     if re.search(r"\bapys?\b|annual percentage yield", low):
         metric = "APY"
@@ -65,7 +66,7 @@ def parse(question: str) -> Question:
             hours = "any"
     as_of_hint = month_year_end(q) if _PAST.search(low) else None
     dateless = re.sub(r"\b(19|20)\d\d\b|\b(january|february|march|april|may|june|july|august|september|october|"
-                      r"november|december)\b|\btoday\b", " ", q, flags=re.I)
+                      r"november|december)\b|\btoday\b", " ", plain, flags=re.I)
     key_words = [t for t in content_tokens(dateless) if t not in GENERIC]
     return Question(
         raw=q,
