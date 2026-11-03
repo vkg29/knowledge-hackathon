@@ -9,9 +9,11 @@ from .qualifiers import Qualifiers, parse_question_qualifiers
 from .text import MONTHS, month_year_end, norm
 from .vocab import GENERIC, STOPWORDS, content_tokens, expand, tokens
 
-_RATE_WORDS = re.compile(r"\b(rates?|apy|apr|yield|dividends?|interest|earn|pays?|percent|%)", re.I)
+_RATE_WORDS = re.compile(r"\b(rates?|apys?|aprs?|yields?|dividends?|interest|percent)\b|%", re.I)
+_EARN_WORDS = re.compile(r"\b(pay|pays|paying|paid|earn|earns|earning|charge|charges|cost)\b(?!\s+(with|for|by|off|my|bills?|using)\b)")
+_RATE_PRODUCTS = re.compile(r"\b(certificates?|cds?|savings|money market|checking|loans?|mortgages?|heloc|ira|visa|credit cards?|special)\b")
 _LIST_WORDS = re.compile(r"\b(what|which)\b.*\b(do you|does dupaco)\s+(offer|have)\b|\ball\b|\blist\b|"
-                         r"\b(rates|cards|accounts|certificates|options)\b(?!\s+(on|for)\s+(a|an|the)\b)", re.I)
+                         r"\b(rates|aprs|apys|fees|cards|loans|accounts|certificates|options|products)\b(?!\s+(on|for)\s+(a|an|the)\b)", re.I)
 _SUPER_MAX = re.compile(r"\b(highest|best|top|maximum|max|most)\b", re.I)
 _SUPER_MIN = re.compile(r"\b(lowest|cheapest|minimum|least)\b", re.I)
 _URL_WORDS = re.compile(r"\b(link|url|web ?page|website address|web address)\b", re.I)
@@ -26,6 +28,7 @@ class Question:
     quals: Qualifiers
     metric: Optional[str]    # "APY" | "APR" | "dividend rate" | "rate" | None
     rate_intent: bool
+    rate_implied: bool       # rate asked for without rate words ("what does it pay?")
     wants_list: bool
     superlative: Optional[str]
     wants_url: bool
@@ -42,20 +45,23 @@ def parse(question: str) -> Question:
     low = norm(q)
     toks = content_tokens(q)
     metric = None
-    if re.search(r"\bapy\b|annual percentage yield", low):
+    if re.search(r"\bapys?\b|annual percentage yield", low):
         metric = "APY"
-    elif re.search(r"\bapr\b|annual percentage rate", low):
+    elif re.search(r"\baprs?\b|annual percentage rate", low):
         metric = "APR"
     elif re.search(r"\bdividend", low):
         metric = "dividend rate"
     rate_intent = bool(_RATE_WORDS.search(low)) and not re.search(r"\binterest(ed)? in\b", low)
+    # "What does the 10-month special pay?" asks for a rate without saying "rate".
+    rate_implied = not rate_intent and bool(_EARN_WORDS.search(low) and _RATE_PRODUCTS.search(low))
     hours = None
-    if re.search(r"\bhours?\b|what time", low) and not rate_intent:
-        if "lobby" in low:
+    if (re.search(r"\bhours?\b|what time", low)
+            or re.search(r"\b(lobby|lobbies|drive[- ]?(up|thru|through))\b.*\bopen\b|\bopen\b.*\b(lobby|lobbies)\b", low)) and not rate_intent:
+        if "lobby" in low or "lobbies" in low:
             hours = "lobby"
         elif re.search(r"drive[- ]?(up|thru|through)", low):
             hours = "drive-up"
-        elif re.search(r"\bhours?\b", low):
+        else:
             hours = "any"
     as_of_hint = month_year_end(q) if _PAST.search(low) else None
     dateless = re.sub(r"\b(19|20)\d\d\b|\b(january|february|march|april|may|june|july|august|september|october|"
@@ -68,6 +74,7 @@ def parse(question: str) -> Question:
         quals=parse_question_qualifiers(q),
         metric=metric,
         rate_intent=rate_intent,
+        rate_implied=rate_implied,
         wants_list=bool(_LIST_WORDS.search(low)),
         superlative="max" if _SUPER_MAX.search(low) else ("min" if _SUPER_MIN.search(low) else None),
         wants_url=bool(_URL_WORDS.search(low)),
@@ -87,11 +94,13 @@ _NOT_NAMES = {"dupaco", "i", "visa", "apy", "apr", "ira", "hsa", "cd", "lobby", 
 
 
 def _answer_type(low: str) -> Optional[str]:
-    if re.search(r"\baddress\b|where is .*\blocated\b|\blocated at\b", low) and "email" not in low and "web" not in low:
+    if re.search(r"\baddress\b|\blocated\b|\bwhere('s| is| are)\b.*\bbranch\b", low) and "email" not in low and "web" not in low:
         return "address"
-    if re.search(r"\bphone\b|\btelephone\b|\bcall\b|\bnumber to (call|reach)\b", low):
+    if re.search(r"\bphone number\b|\btelephone\b|\bnumber (to|i can|should i) (call|reach)\b|\bcall (you|dupaco)\b", low):
         return "phone"
-    if re.search(r"^when\b|\bwhat date\b|\bstill open\b|\bstill (available|operating)\b|\bclos(e|ed|ing) (date|for good)\b", low):
+    if re.search(r"\brouting\b|\baba\b", low):
+        return "routing"
+    if re.search(r"^when\b|\bwhat date\b|\bwhat day\b|\bstill open\b|\bstill (available|operating)\b|\bclos(e|ed|ing) (date|for good)\b", low):
         return "date"
     return None
 

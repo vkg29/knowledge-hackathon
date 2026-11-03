@@ -23,12 +23,13 @@ REFUSAL = ("I'm sorry, that isn't listed on Dupaco's website, so I can't confirm
            "Please contact Dupaco directly by phone, in Shine Online Banking or at any branch, and a team member can help.")
 
 # How much a prose statement is trusted, by page kind (official pages first).
-_PROSE_WEIGHT = {6: 1.0, 5: 1.0, 4: 0.9, 3: 0.8, 2: 0.85, 1: 0.75, 0: 0.4}
+_PROSE_WEIGHT = {6: 1.0, 5: 1.0, 4: 0.9, 3: 0.8, 2: 0.85, 1: 0.75, 0: 0.2}
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 _ANSWER_SHAPES = {
     "address": re.compile(r"\b\d{2,6}\s+(?:[NSEW]\.?\s+)?[A-Z0-9][\w.']*(?:\s+[\w.']+){0,3}\s+(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|"
                           r"Ln|Lane|Hwy|Highway|Blvd|Boulevard|Way|Ct|Court|Pkwy|Parkway|Plaza|Pl|Square|Sq)\b|P\.?\s?O\.? Box", re.I),
     "phone": re.compile(r"\(?\b\d{3}\)?[-.\s]\d{3}[-.]\d{4}\b"),
+    "routing": re.compile(r"\b\d{9}\b"),
     "date": re.compile(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|\b\d{1,2}/\d{1,2}/\d{2,4}\b", re.I),
 }
 _LABEL_LINE = re.compile(r"^([A-Za-z][A-Za-z ’'/-]{1,30}):\s*\S")
@@ -68,6 +69,8 @@ class Answerer:
             res = self._hours(q, k, on_date)
         elif q.rate_intent:
             res = self._rate(q, k, on_date) or self._prose(q, k, on_date, need_percent=True)
+        elif q.rate_implied:
+            res = self._rate(q, k, on_date) or self._prose(q, k, on_date)
         else:
             res = self._prose(q, k, on_date)
         return (res or Result(REFUSAL, confident=False)), k
@@ -209,7 +212,8 @@ class Answerer:
         scored = [(s * (0.3 + self._coverage(q, r)) ** 2, r) for s, r in scored[:300]]
         scored.sort(key=lambda c: (-c[0], c[1].rid))
         best_s, best = scored[0]
-        if not self._covered(q, best, 0.4 if q.answer_type else 0.5):
+        # A matched name (place, brand, program) already grounds the topic, so less overlap is needed.
+        if not self._covered(q, best, 0.35 if q.names else (0.4 if q.answer_type else 0.5)):
             return None
         # Same statement printed with different numbers (e.g. press-release boilerplate):
         # the truest, newest copy wins.

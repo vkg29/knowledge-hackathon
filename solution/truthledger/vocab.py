@@ -21,6 +21,7 @@ just also offer offers have has had am pm one
 provide show find see list explain describe looking interested wondering repeat keep same let say
 mid early late around approximately roughly exactly over under via
 operate operates run runs maintain maintains their them they its his her us ours theirs
+publish published post posted total overall currently anymore
 use using used go going make made take each every other another more most still
 """.split())
 
@@ -45,6 +46,10 @@ SYNONYMS = {
     "ira": ["retirement", "roth", "traditional"], "retirement": ["ira"],
     "boat": ["recreational"], "rv": ["recreational"], "camper": ["recreational"],
     "hours": ["lobby", "drive"], "open": ["close", "hours"], "close": ["closure", "closing"],
+    "shut": ["close", "closure"], "closed": ["close"],
+    "promotion": ["special", "promo", "offer"], "promo": ["special", "promotion"], "deal": ["special", "offer"],
+    "office": ["branch", "location"], "offices": ["branch", "location"],
+    "buyer": ["homebuyer"], "buyers": ["homebuyer"], "homebuyer": ["buyer"],
     "address": ["located", "location"], "location": ["branch", "address"], "locations": ["branch", "address"],
     "branches": ["branch"], "branch": ["office", "location"],
     "phone": ["call"], "call": ["phone"],
