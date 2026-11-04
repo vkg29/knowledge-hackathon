@@ -68,7 +68,16 @@ class Answerer:
             as_of = q.as_of_hint
         k = self.ledger.snapshot_for(as_of)
         on_date = min(as_of, latest) if as_of else self.ledger.snapshots[k].taken_on
-        if q.change and not (q.wants_url or q.hours) and (q.rate_intent or q.rate_implied or q.family):
+        tabled = q.rate_intent or q.rate_implied
+        if as_of is None and q.year and tabled and not q.change and q.year < int(latest[:4]):
+            first = self.ledger.snapshots[0].taken_on
+            if q.year < int(first[:4]):   # before the first crawl: the site as it stood then is not known
+                return Result(f"I can't confirm what was listed in {q.year}: the oldest copy of Dupaco's website I have is "
+                              f"from {long_date(first)}. Please contact Dupaco for older rates.", confident=False), 0
+            as_of = f"{q.year}-12-31"
+            k = self.ledger.snapshot_for(as_of)
+            on_date = min(as_of, latest)
+        if q.change and not (q.wants_url or q.hours) and (tabled or q.family):
             res = self._change(q, k)
             if res is not None:
                 return res, k
@@ -187,12 +196,17 @@ class Answerer:
             best = max(plain, key=lambda f: (AUTHORITY[f[2].page.kind], f[0], truth_key(f[2])))
             family = best[1].family
             extra_ok = {"business"} if _catalogue(q) else set()
-            chosen = [f for f in facts if f[1].family == family and (f[1].kinds - q.kinds) <= extra_ok
+            # the best fact's family, or every family of a group the question named ("home equity")
+            families = {family} | ({f[1].family for f in facts if f[1].family and family_matches(q.family, f[1].family)}
+                                   if q.family and q.family != family else set())
+            chosen = [f for f in facts if f[1].family in families and (f[1].kinds - q.kinds) <= extra_ok
                       and (f[1].family is not None or f in band)]
         else:
             best = max(band, key=lambda f: (truth_key(f[2]), f[0]))
-            group = (best[1].family, best[1].product, best[1].kinds)
-            chosen = [f for f in band if (f[1].family, f[1].product, f[1].kinds) == group]
+            # Roth and Traditional are parallel versions of one IRA product: an "IRA" question gets both
+            loose = _WRAPPERS - q.kinds
+            group = (best[1].family, best[1].product, best[1].kinds - loose)
+            chosen = [f for f in band if (f[1].family, f[1].product, f[1].kinds - loose) == group]
             if siblings:
                 chosen += self._siblings(q, chosen, winners, k)
         keys = list(dict.fromkeys(f[1] for f in chosen))
@@ -522,6 +536,7 @@ def _names_account_kind(q: Question, row: Row) -> bool:
 
 
 _GONE = "No longer offered:"
+_WRAPPERS = frozenset({"roth", "traditional"})
 _ELIGIBILITY_Q = re.compile(r"\b(who|eligib\w*|qualif\w*|requirements?|criteria)\b.*\b(join|become a member|membership|member)\b|"
                            r"\b(join|membership)\b.*\b(eligib\w*|qualif\w*|requirements?|criteria)\b", re.I)
 _ELIGIBILITY_HEAD = re.compile(r"\beligib\w*|\bwho can (join|become)|\bfield of membership\b|\bmembership requirements?\b", re.I)
@@ -590,7 +605,8 @@ def _describe_history(q: Question, runs: list, start_k: int, end_k: int, metric:
     if len(window) < 2:
         since = f" since {long_date(q.since)}" if q.since else ""
         return f"The {name} has not changed{since}: {value_text(last_row, metric)} ({window[-1][1]}).{tail}", [last_row]
-    parts = [f"{value_text(r, metric)} ({w})" for r, w, _ in window]
+    relabelled = len({r.label for r, _, _ in window}) > 1
+    parts = [f"{value_text(r, metric)} ({r.label + ', ' if relabelled else ''}{w})" for r, w, _ in window]
     move = _direction(window[0][0], window[-1][0], metric)
     end = " which is the current rate." if current else "."
     return f"The {name} {move}: " + ", then ".join(parts) + "," + end + tail, [window[-1][0]] + [r for r, _, _ in window[:-1]]

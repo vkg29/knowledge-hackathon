@@ -35,7 +35,7 @@ finance financed financing borrow borrowing borrowed charged carry carries come 
 change changed changes changing happen happened since before after between recent recently increase increased
 decrease decreased went gone go goes rise rose risen raise raised drop dropped lower lowered fell move moved
 latest previous previously prior ago earlier past history trend still offered available offering up down
-buy buying bought
+buy buying bought last
 """.split())
 
 SYNONYMS = {

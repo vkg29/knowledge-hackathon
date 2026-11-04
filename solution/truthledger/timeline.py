@@ -57,7 +57,7 @@ def value_text(row, metric: Optional[str] = None, full: bool = False) -> str:
         return " / ".join(f"{vals[m]} {m}" for m in ("rate", "dividend rate", "APY", "APR", "fee") if m in vals)
     groups = (((metric,),) if metric and metric != "rate" else ()) + (("APY",), ("rate", "APR"), ("APR",), ("dividend rate",), ("fee",))
     for group in groups:
-        got = [f"{vals[m]} {m}" for m in group if m in vals]
+        got = [vals[m] if re.search(r"\b(apr|apy)\b", vals[m], re.I) else f"{vals[m]} {m}" for m in group if m in vals]
         if got:
             return " / ".join(got)
     return ""
