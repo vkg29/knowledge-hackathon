@@ -151,6 +151,8 @@ class Answerer:
             cands.append((s, row))
         if q.names:
             cands = [c for c in cands if self._has_names(q, c[1])]
+        # An IRA question is answered only by IRA rows, never by the plain certificate of the same term.
+        cands = [c for c in cands if _names_account_kind(q, c[1])]
         # Every row in a rate answer must itself be about the product asked for.
         cands = [c for c in cands if self._covered(q, c[1])]
         if any(q.quals.variants <= r.quals.variants for _, r in cands):
@@ -372,6 +374,14 @@ def _compatible(q: Question, row: Row) -> bool:
 
 
 _RATE_FAMILY = ("rate", "dividend rate", "APY", "APR")
+_ACCOUNT_KINDS = frozenset(stem(w) for w in ("ira", "roth", "traditional"))
+
+
+def _names_account_kind(q: Question, row: Row) -> bool:
+    """Does the row's caption, label or section carry every account kind (IRA, Roth, Traditional)
+    the question names?"""
+    asked = _ACCOUNT_KINDS.intersection(q.key_words)
+    return not asked or asked <= set(tokens(f"{row.caption} {row.label} {row.section}"))
 
 
 def _tightest_tier(cands: list) -> list:

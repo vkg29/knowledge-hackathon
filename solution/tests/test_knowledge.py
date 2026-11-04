@@ -222,6 +222,22 @@ Special IRAs
 Rates are effective as of 09/01/2026.
 """
 
+REGULAR_IRAS = """# Rates
+
+Regular IRAs
+
+| IRA | Dividend Rate | APY |
+| --- | --- | --- |
+| Traditional: 18 Months | 2.68% | 2.70% |
+| Roth: 18 Months | 2.68% | 2.70% |
+| Traditional: 36 Months | 2.08% | 2.10% |
+| Roth: 36 Months | 2.08% | 2.10% |
+| Traditional: 60 Months | 1.79% | 1.80% |
+| Roth: 60 Months | 1.79% | 1.80% |
+
+Rates are effective as of 05/01/2026.
+"""
+
 IRA_BLOG = """# Why some prefer certificate IRAs
 
 Insured funds: At Dupaco, IRA deposits are insured separately by the NCUA up to $250,000.
@@ -696,6 +712,15 @@ class Refusals(unittest.TestCase):
 
     def test_unknown_branch_is_refused(self):
         self.assert_refused(self.ks.answer("What are the lobby hours at the Elm Street branch?"))
+
+    def test_unlisted_ira_term_is_refused_not_answered_by_a_plain_certificate(self):
+        ks = system(snap("01_2026-05-12_only", "2026-05-12", {
+            "/rates": CERT_TABLE.format(r12="2.88", a12="2.90", eff="05/01/2026"), "/ira": REGULAR_IRAS}))
+        self.assert_refused(ks.answer("What is the 12-month IRA certificate rate?"))
+        self.assert_refused(ks.answer("What is the 12-month Roth IRA rate?"))
+        self.assertEqual(numbers(ks.answer("What is the 18-month Roth IRA rate?").text), ["2.68%", "2.70%"])
+        self.assertEqual(sorted(set(numbers(ks.answer("What is the 18-month IRA certificate rate?").text))), ["2.68%", "2.70%"])
+        self.assertEqual(numbers(ks.answer("What is the 12-month certificate rate?").text), ["2.88%", "2.90%"])
 
     def test_label_value_lines_are_answered(self):
         self.assertIn("123456789", self.ks.answer("What is the routing number?").text)

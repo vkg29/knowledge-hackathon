@@ -34,7 +34,10 @@ byte-identical text and sources every time (checked across processes with differ
    the regular special, not the jumbo or IRA one. The same goes for a product's distinguishing name
    words when a plainer product of the same term competes: "12-month certificate" means the regular
    certificate, not the student one. A variant the question names wins over rows without it when
-   any row carries it ("IRA certificate rate" answers the IRA rows), and a question asking for a
+   any row carries it ("IRA certificate rate" answers the IRA rows). A question naming IRA, Roth or
+   Traditional is answered only by rows whose caption, label or section carries those words, so an
+   IRA term the site does not list is refused rather than answered by the plain certificate of that
+   term ("12-month IRA certificate" when only 18-, 36- and 60-month IRAs exist). A question asking for a
    rate ("rate", "APY", "what does it earn?") is answered only from rows that state a percentage;
    a dollar amount is read as a fee only when its label or column says fee, cost, price or charge.
    A list question ("What are the certificate rates?") is answered from the official page of the
