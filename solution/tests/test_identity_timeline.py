@@ -2,6 +2,7 @@
 
 Run from the repository root:  python -m unittest discover -s solution/tests -v
 """
+import os
 import re
 import sys
 import unittest
@@ -10,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "harness"))
 sys.path.insert(0, str(ROOT / "solution"))
+os.environ.pop("ANTHROPIC_API_KEY", None)   # unit tests never call the real API
 
 from contract import Page, Snapshot  # noqa: E402
 from truthledger.catalogue import family_of, product_words, question_family  # noqa: E402

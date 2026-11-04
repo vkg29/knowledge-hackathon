@@ -7,9 +7,13 @@ It is a submission for the interface.ai take-home *"Build a knowledge system tha
 - **The submission** is [`solution/`](solution/): `solution.py` exposes `build()` following
   [`harness/contract.py`](harness/contract.py); the code lives in [`solution/truthledger/`](solution/truthledger/).
 - **How it decides what is current, its scores and known gaps:** [`NOTES.md`](NOTES.md).
-- No API key is needed; the only dependency is a small pure-Python stemmer.
+- **Set ANTHROPIC_API_KEY for best results; uses Claude via the Anthropic API** (Claude Haiku 5.5, for question
+  understanding only; the ledger's truth rules still pick every value). Without a key it answers with rules only.
 
 ## Run it
+
+Set ANTHROPIC_API_KEY for best results; uses Claude via the Anthropic API. On load the program prints
+`AI steps: ON (...)` or `AI steps: OFF (no key found ...)`; without a key it answers with rules only.
 
 The website snapshots are not in this repository (they are not ours to redistribute). Copy the kit's
 `snapshots_zip/` folder (the five `0*.zip` files) into the repository root, then:
@@ -23,8 +27,13 @@ python harness/run_eval.py --submission solution --eval eval/heldout_v2_eval.jso
 python harness/run_eval.py --submission solution --eval eval/heldout_v3_eval.jsonl   # set 3: new phrasings and facts
 python harness/run_eval.py --submission solution --eval eval/heldout_v4_eval.jsonl   # set 4: what changed, relative dates, renamed tiers
 python harness/run_eval.py --submission solution --eval eval/heldout_v5_eval.jsonl   # set 5: fresh rewordings
-python -m unittest discover -s solution/tests -v                                     # unit tests
+python harness/run_eval.py --submission solution --eval eval/heldout_v6_eval.jsonl   # set 6: slang, typos, comparisons, calendar vs model year
+python -m unittest discover -s solution/tests -v                                     # unit tests (no network, no key)
 ```
+
+`export ANTHROPIC_API_KEY=...` before the eval commands turns the AI steps on; add `--judge` to use the kit's own
+LLM judge (it reads the same variable). `TRUTHLEDGER_AI_TRACE=<file.jsonl>` logs each question's AI step (reply,
+seconds, tokens) for inspection.
 
 The first eval run unpacks the zips into `snapshots/` (ignored by git). Add
 `--conflicts-gold <file>` to score `conflicts()` against a gold list, for example
@@ -32,15 +41,15 @@ The first eval run unpacks the zips into `snapshots/` (ignored by git). Add
 and run the kit's own fixture with
 `python harness/run_eval.py --submission solution --snapshots harness/selftest/snapshots --eval harness/selftest/eval.jsonl --conflicts-gold harness/selftest/conflicts_gold.json`.
 
-CI (`.github/workflows/ci.yml`) runs the unit tests and `ruff check .` on Python 3.11; the eval sets
-need the snapshots, so they run locally only.
+CI (`.github/workflows/ci.yml`) runs the unit tests and `ruff check .` on Python 3.11 without a key (the AI tests
+use a fake client); the eval sets need the snapshots, so they run locally only.
 
 ## Layout
 
 ```
 solution/            the submission (solution.py, truthledger/ package, tests/, requirements.txt)
 harness/             the kit's scorer and contract (unchanged)
-eval/                public_eval.jsonl (kit) + heldout_eval.jsonl, heldout_v2..v5_eval.jsonl and conflicts_guess.json (ours)
+eval/                public_eval.jsonl (kit) + heldout_eval.jsonl, heldout_v2..v6_eval.jsonl and conflicts_guess.json (ours)
 starter/             the kit's naive starter (unchanged)
 snapshots/README.md  what each snapshot is (the snapshot folders themselves are not committed)
 ```
