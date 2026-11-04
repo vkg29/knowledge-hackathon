@@ -259,7 +259,7 @@ class Answerer:
 
     def _identities(self, q: Question, rel: dict, winners: dict, listing: bool) -> list:
         """(relevance, FactKey, winning row) for the identities a question asks about, best first."""
-        need = q.kinds & _RETIREMENT_KINDS   # an IRA question is answered only by IRA facts
+        need = q.kinds   # an IRA, business, jumbo or refinance question is answered only by such facts
         facts = []
         for key, s in rel.items():
             w = winners[key]
@@ -267,14 +267,10 @@ class Answerer:
                 continue   # a model year or balance falls in the tier the slot's *current* row prints
             if not need <= key.kinds:
                 continue
-            extra, missing = key.kinds - q.kinds, q.kinds - key.kinds
+            extra = key.kinds - q.kinds   # kinds the question did not ask for ('jumbo' for a plain special)
             if extra:
                 s *= (0.8 if listing else 0.55) ** len(extra)
-            if missing:
-                s *= 0.5 ** len(missing)
             facts.append((s, key, w))
-        if any(q.kinds <= f[1].kinds for f in facts):
-            facts = [f for f in facts if q.kinds <= f[1].kinds]
         named = q.product & self.product_vocab
         if named and any(named <= f[1].product for f in facts):
             facts = [f for f in facts if named <= f[1].product]
@@ -350,9 +346,18 @@ class Answerer:
         # the truest, newest copy wins.
         tmpl = _template(best.text)
         rivals = [r for s, r in scored[:60] if s >= 0.6 * best_s and _similar(_template(r.text), tmpl)]
+        yearly = _by_year(rivals)
+        if yearly:   # the same statement about different years: separate facts, the year is a qualifier
+            if q.year in yearly:
+                rivals = yearly[q.year]
+            elif q.year:
+                return self._yearly(q, yearly)
+            else:
+                rivals = yearly[max(yearly)]
+            best = max(rivals, key=truth_key)
         disagree = any(_NUMBER.findall(r.text) != _NUMBER.findall(best.text) for r in rivals)
         winner = max(rivals, key=truth_key) if disagree else best
-        if winner is best:
+        if winner is best and not yearly:
             # Near-ties on one page: the earliest mention is usually the lead/definition.
             cov = self._coverage(q, best)
             lead = [r for s, r in scored[:20] if r.page.vid == best.page.vid and s >= 0.7 * best_s
@@ -370,6 +375,12 @@ class Answerer:
             if link and link not in text:
                 text += f" You can get started here: {link}"
         return Result(text, [winner], note=note, support=support)
+
+    def _yearly(self, q: Question, yearly: dict) -> Result:
+        """The site has no statement for the asked year: give each year it does state, newest first."""
+        rows = [max(yearly[y], key=truth_key) for y in sorted(yearly, reverse=True)[:3]]
+        lead = f"The site has no figure for {q.year}. " if q.year else ""
+        return Result(lead + " ".join(_sentence(r.text) for r in rows), rows)
 
     def _heading_boost(self, q: Question, row: Row) -> float:
         """A membership-eligibility question ('Who can join?', 'Who is eligible to become a member?') is
@@ -495,7 +506,6 @@ def _compatible(q: Question, row: Row) -> bool:
 
 _RATE_FAMILY = ("rate", "dividend rate", "APY", "APR")
 _ACCOUNT_KINDS = frozenset(stem(w) for w in ("ira", "roth"))
-_RETIREMENT_KINDS = frozenset({"ira", "roth", "traditional"})
 _RETIREMENT = frozenset(stem(w) for w in ("ira", "retirement"))
 _TRADITIONAL = stem("traditional")
 
@@ -608,6 +618,21 @@ def _name(r: Row) -> str:
     return label
 
 
+_YEAR = re.compile(r"\b(19[5-9]\d|20\d\d)\b")
+
+
+def _by_year(rivals: list) -> dict:
+    """year -> rivals, when the copies of one statement each describe a different single year ('294
+    employees used VTO in 2023', '256 ... in 2024'); empty when they are copies of one fact."""
+    out: dict = defaultdict(list)
+    for r in rivals:
+        years = set(_YEAR.findall(r.text))
+        if len(years) != 1:
+            return {}
+        out[int(years.pop())].append(r)
+    return dict(out) if len(out) > 1 else {}
+
+
 def _tightest_tier(facts: list) -> list:
     """With a dollar amount in the question, keep each product's narrowest tier that contains it."""
     best: dict = {}
@@ -622,10 +647,6 @@ def _tightest_tier(facts: list) -> list:
 
 def _specific(q: Question) -> bool:
     return bool(q.quals.terms or q.quals.years or q.quals.amount or q.superlative)
-
-
-def _same_table(a: Row, b: Row) -> bool:
-    return a.page.vid == b.page.vid and a.caption == b.caption and a.section == b.section
 
 
 def _prefer_plainer(q: Question, facts: list, listing: bool) -> list:

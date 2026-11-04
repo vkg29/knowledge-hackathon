@@ -37,10 +37,7 @@ _FAMILY_RULES: list[tuple[str, str]] = [
 ]
 _COMPILED = [(f, re.compile(p, re.I)) for f, p in _FAMILY_RULES]
 
-FAMILIES = tuple(f for f, _ in _FAMILY_RULES)
 DEPOSITS = frozenset({"certificate", "money market", "health savings", "checking", "savings"})
-LOANS = frozenset({"heloc", "home equity loan", "home improvement loan", "student loan", "mortgage", "powersport loan",
-                   "recreational loan", "auto loan", "personal loan"})
 # A question naming a broader group matches every family in it ("home equity" covers the line of
 # credit and the fixed loan).
 _GROUPS = {"home equity": frozenset({"heloc", "home equity loan"})}

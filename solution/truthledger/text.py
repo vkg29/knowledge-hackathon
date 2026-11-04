@@ -148,10 +148,6 @@ def relative_date(s: str, today: str) -> Optional[str]:
     return None
 
 
-def has_relative_date(s: str) -> bool:
-    return bool(_AGO.search(s) or _LAST_UNIT.search(s) or _BARE_MONTH.search(s))
-
-
 def strip_dates(s: str) -> str:
     """The text with every written date ('May 15, 2026', '6/1/2026', 'May 2026') blanked out."""
     for pattern in (_DATE_NUMERIC, _DATE_LONG, _DATE_ISO, _MONTH_YEAR):

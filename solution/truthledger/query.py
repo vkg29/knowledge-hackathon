@@ -8,7 +8,7 @@ from typing import Optional
 from .catalogue import product_words, question_family
 from .identity import KINDS
 from .qualifiers import Qualifiers, parse_question_qualifiers
-from .text import MONTHS, date_asked, norm
+from .text import MONTHS, date_asked, norm, strip_dates
 from .vocab import GENERIC, STOPWORDS, content_tokens, expand, tokens
 
 _RATE_WORDS = re.compile(r"\b(rates?|apys?|aprs?|yields?|dividends?|interest|percent)\b|%", re.I)
@@ -60,6 +60,7 @@ class Question:
     family: Optional[str] = None      # catalogue family the question names (catalogue.py)
     product: frozenset = frozenset()  # distinctive product name words ('share', 'bright', 'special')
     kinds: frozenset = frozenset()    # account kinds / variants asked for (identity.KINDS)
+    year: Optional[int] = None        # calendar year a statement must be about ('in 2024', 'last year')
 
 
 def parse(question: str, today: Optional[str] = None) -> Question:
@@ -102,6 +103,7 @@ def parse(question: str, today: Optional[str] = None) -> Question:
     if "traditional" in kinds and not ({"ira", "roth"} & kinds or re.search(r"\bretirement\b", low)):
         kinds -= {"traditional"}   # 'traditional 30 year fixed home loan' is not an IRA question
     return Question(
+        year=_year_asked(q, today, quals),
         change=change, since=since, until=until,
         family=family,
         product=product_words(dateless, family),
@@ -131,6 +133,22 @@ _NOT_NAMES = {"dupaco", "i", "visa", "apy", "apr", "apys", "aprs", "ira", "iras"
               "what", "when", "where", "who", "how", "is", "are", "can", "do", "does", "the", "a", "my", "mobile",
               "shine", "online", "credit", "union", "monday", "tuesday", "wednesday", "thursday", "friday",
               "saturday", "sunday"} | set(MONTHS)
+
+
+_REL_YEAR = {"last year": -1, "past year": -1, "previous year": -1, "this year": 0, "the year before last": -2}
+
+
+def _year_asked(q: str, today: Optional[str], quals: Qualifiers) -> Optional[int]:
+    """'How many ... in 2024?' -> 2024; 'last year' -> the year before the newest crawl's. Not a model
+    year, not a year that is part of a full date."""
+    low = q.lower()
+    for phrase, delta in _REL_YEAR.items():
+        if phrase in low and today:
+            return int(today[:4]) + delta
+    m = re.search(r"\b(?:in|during|for|of)\s+((?:19|20)\d\d)\b(?!\s*model)", strip_dates(q))
+    if m and not (quals.years and quals.years[0] == int(m.group(1))):
+        return int(m.group(1))
+    return None
 
 
 def _change(q: str, low: str, today: Optional[str]) -> tuple:
