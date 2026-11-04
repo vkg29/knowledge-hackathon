@@ -103,8 +103,9 @@ every time (checked across processes with different hash seeds).
   September" and "is it still offered" are read from the same history. A superseded figure is always
   stated as a past one, with the date it changed. Only wording about time makes a question a
   change question: "lower than the jumbo", "does it go up with a bigger balance" or "how does it
-  change with the term" compare products and get today's values; "lower", "go up" or "change" count
-  as a change only beside a time word ("did", "was", "since", "ago", "last", a year). With a model year in the question, each crawl's
+  change with the term" compare products and get today's values; "lower", "higher", "go up",
+  "change", "compare", "different" or "trend" count as a change only beside a time word ("did",
+  "was", "since", "ago", "last", "now", a month or a year, but not a model year). With a model year in the question, each crawl's
   slot is the one whose printed years contained it, so "a 2023 car since May" correctly goes from the
   May "2023-26" tier (5.19%) to today's "2021-23" tier (5.64%).
 - **Relative dates** count back from the newest crawl (28 Sep 2026): "last month" is 31 Aug, "two

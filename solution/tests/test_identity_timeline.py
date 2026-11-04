@@ -408,6 +408,21 @@ class Timelines(unittest.TestCase):
         self.assertEqual(parse("Did the 17-month special rate drop?", "2026-09-28").change, "history")
         self.assertEqual(parse("Is the 17-month special rate lower than it was in June?", "2026-09-28").change, "history")
 
+    def test_a_month_without_a_year_is_time_wording(self):
+        for q in ("Is the 17-month certificate special APY lower than in June?",
+                  "Is the 17-month certificate special APY higher than in June?",
+                  "Is the 17-month certificate special APY higher now than it was in June?",
+                  "How does the 17-month certificate special APY compare to June?",
+                  "Is the 17-month certificate special APY different than in May?"):
+            self.assertEqual(parse(q, "2026-09-28").change, "history", q)
+            ans = self.ks.answer(q)
+            self.assertTrue(ans.confident, q)
+            self.assertEqual(numbers(ans.text)[-3:], ["3.85%", "3.95%", "4.10%"], q)
+        for q in ("Is the jumbo 17-month special APY higher than the regular one?",
+                  "How does the 17-month special APY compare with the jumbo version?",
+                  "The 17-month special APY may go up with a jumbo balance; does it?"):
+            self.assertIsNone(parse(q, "2026-09-28").change, q)
+
     def test_over_the_past_year_is_the_trailing_twelve_months(self):
         today = "2026-09-28"
         for q in ("What has the 17-month certificate special APY been over the past year?",
