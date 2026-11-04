@@ -228,7 +228,7 @@ def _numbers_kept(question: str, restated: list) -> bool:
     base |= {float(n) for w, n in {**NUMBER_WORDS, **_ORDINALS}.items() if re.search(rf"\b{w}\b", low)}
     if re.search(r"\b(a|an)\s+(years?|yrs?|months?|mos?)\b", low):
         base |= {1.0}
-    years = re.search(r"\b(years?|yrs?)\b|\d\s?y\b", low)
+    years = re.search(r"(?:\b|\d)(?:years?|yrs?)\b|\d\s?y\b", low)
     if years:
         base |= {12.0}
     if re.search(r"\b(a |one )?(year|yr) and a half\b", low):
@@ -236,7 +236,7 @@ def _numbers_kept(question: str, restated: list) -> bool:
     allowed = set(base)
     if years:
         allowed |= {v * 12 for v in base}
-    if re.search(r"\b(months?|mos?|mths?)\b|\d\s?m\b", low):
+    if re.search(r"(?:\b|\d)(?:months?|mos?|mths?)\b|\d\s?m\b", low):
         allowed |= {v / 12 for v in base}
     if re.search(r"\b(thousand|grand)\b", low):
         allowed |= {v * 1000 for v in base}

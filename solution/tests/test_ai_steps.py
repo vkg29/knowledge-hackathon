@@ -299,13 +299,14 @@ class Robustness(unittest.TestCase):
         ks, _, _ = with_ai({q: reply("What is the APY on the 12-month certificate?")}, delays={q: 0.5})
         rules = ks._answerer.answer
 
-        def slow_rules(*args, **kw):
-            time.sleep(0.5)
-            return rules(*args, **kw)
+        def slow_rules(question, *args, **kw):
+            if question == q:
+                time.sleep(0.5)
+            return rules(question, *args, **kw)
         ks._answerer.answer = slow_rules
         start = time.monotonic()
         ans = ks.answer(q)
-        self.assertLess(time.monotonic() - start, 1.5)
+        self.assertLess(time.monotonic() - start, 0.8)
         self.assertIn("2.95%", ans.text)
 
     def test_same_question_is_understood_once_and_answered_identically(self):
@@ -339,6 +340,13 @@ class ReplyValidation(unittest.TestCase):
         self.assertIsNotNone(ai.parse_reply(reply("What is the APY on the 12-month certificate?"), "a year cd apy"))
         self.assertIsNotNone(ai.parse_reply(reply("What is the APY on the 1-year certificate?"), "12 month cd apy"))
         self.assertIsNotNone(ai.parse_reply(reply("What does Share Savings pay on $15,000?"), "15 thousand in savings"))
+        for asked, restated in [("whats the apy on a 1yr cd", "What is the APY on the 12-month certificate?"),
+                                ("2yr cd rate", "What is the rate on the 24-month certificate?"),
+                                ("car loan 5yrs", "What is the APR on a 60-month auto loan?"),
+                                ("24mo cd", "What is the APY on the 2-year certificate?"),
+                                ("18mos cd", "What is the APY on the 1.5-year certificate?"),
+                                ("6mos cd", "What is the APY on the 6-month certificate?")]:
+            self.assertIsNotNone(ai.parse_reply(reply(restated), asked), asked)
 
     def test_numbers_the_member_never_wrote_are_rejected(self):
         self.assertIsNone(ai.parse_reply(reply("What is the rate on the 12-month certificate?"), "what r ur certifcate rates"))
