@@ -112,7 +112,7 @@ def _metric_name(header: str, cell: str) -> Optional[str]:
         return "dividend rate"
     if re.search(r"\brate\b", h):
         return "rate"
-    if "fee" in h or "cost" in h or "price" in h:
+    if re.search(r"fee|cost|price|charge", h):
         return "fee"
     if re.search(r"min\.? to open|minimum (to open|opening|deposit)", h):
         return "minimum to open"
@@ -216,7 +216,8 @@ _LABEL_VALUE = re.compile(r"^(?P<label>[A-Za-z0-9][^:]{2,80}):\s*(?P<value>.{1,9
 
 def _label_value_row(text: str, heads: list, section: str) -> Optional[RawRow]:
     """A 'Label: value' line that states a rate or fee ('6-month certificate APY: 3.50%') is a
-    one-row table: it becomes a ledger row with the same qualifiers and metrics as table rows."""
+    one-row table: it becomes a ledger row with the same qualifiers and metrics as table rows. A
+    dollar amount is a fact row only when the line says what it is (a fee, a minimum to open)."""
     m = _LABEL_VALUE.match(text)
     if not m:
         return None
@@ -226,7 +227,9 @@ def _label_value_row(text: str, heads: list, section: str) -> Optional[RawRow]:
     if not pct and not money:
         return None
     words = f"{label} {value}"
-    metric = _metric_name(words, value) or ("fee" if money and not pct else "rate")
+    metric = _metric_name(words, value) or ("rate" if pct else None)
+    if metric is None:
+        return None
     figure = pct[0] if pct else money.group(0)
     rest = _SPACE_RE.sub(" ", value.replace(figure, " ")).strip(" ,;")
     caption = heads[-1][1] if heads else ""

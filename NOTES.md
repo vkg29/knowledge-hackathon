@@ -31,7 +31,10 @@ byte-identical text and sources every time (checked across processes with differ
    amount); rows with variants the question did not ask for are demoted, so "17-month special" means
    the regular special, not the jumbo or IRA one. The same goes for a product's distinguishing name
    words when a plainer product of the same term competes: "12-month certificate" means the regular
-   certificate, not the student one.
+   certificate, not the student one. A variant the question names wins over rows without it when
+   any row carries it ("IRA certificate rate" answers the IRA rows), and a question asking for a
+   rate ("rate", "APY", "what does it earn?") is answered only from rows that state a percentage;
+   a dollar amount is read as a fee only when its label or column says fee, cost, price or charge.
 2. **Ended things are not current.** Rows from a page that says the offer has ended, and rows that
    state their own past end date ("offer ended 2025-09-30"), drop out of current answers. They still
    answer "as of" questions about the time they were live.

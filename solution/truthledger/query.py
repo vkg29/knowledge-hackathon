@@ -10,7 +10,9 @@ from .text import MONTHS, date_asked, norm
 from .vocab import GENERIC, STOPWORDS, content_tokens, expand, tokens
 
 _RATE_WORDS = re.compile(r"\b(rates?|apys?|aprs?|yields?|dividends?|interest|percent)\b|%", re.I)
-_EARN_WORDS = re.compile(r"\b(pay|pays|paying|paid|earn|earns|earning|charge|charges|cost)\b(?!\s+(with|for|by|off|my|bills?|using)\b)")
+_NOT_PRICE = r"(?!\s+(with|for|by|off|my|bills?|using)\b)"
+_EARN_WORDS = re.compile(r"\b(pay|pays|paying|paid|earn|earns|earning)\b" + _NOT_PRICE)
+_COST_WORDS = re.compile(r"\b(charge|charges|cost)\b" + _NOT_PRICE)
 _RATE_PRODUCTS = re.compile(r"\b(certificates?|cds?|savings|money market|checking|loans?|mortgages?|heloc|ira|visa|credit cards?|special)\b")
 _LIST_WORDS = re.compile(r"\b(what|which)\b.*\b(do you|does dupaco)\s+(offer|have)\b|\ball\b|\blist\b|"
                          r"\b(rates|aprs|apys|fees|cards|loans|accounts|certificates|options|products)\b(?!\s+(on|for)\s+(a|an|the)\b)", re.I)
@@ -28,7 +30,8 @@ class Question:
     quals: Qualifiers
     metric: Optional[str]    # "APY" | "APR" | "dividend rate" | "rate" | None
     rate_intent: bool
-    rate_implied: bool       # rate asked for without rate words ("what does it pay?")
+    rate_implied: bool       # table value asked for without rate words ("what does it pay?", "what does it cost?")
+    wants_rate: bool         # the answer must be a percentage rate (rate words, or "what does it pay/earn?")
     wants_list: bool
     superlative: Optional[str]
     wants_url: bool
@@ -56,7 +59,8 @@ def parse(question: str) -> Question:
         metric = "minimum to open"
     rate_intent = bool(_RATE_WORDS.search(low)) and not re.search(r"\binterest(ed)? in\b", low)
     # "What does the 10-month special pay?" asks for a table value without saying "rate".
-    rate_implied = not rate_intent and (bool(_EARN_WORDS.search(low) and _RATE_PRODUCTS.search(low))
+    earns = bool(_EARN_WORDS.search(low) and _RATE_PRODUCTS.search(low))
+    rate_implied = not rate_intent and (earns or bool(_COST_WORDS.search(low) and _RATE_PRODUCTS.search(low))
                                         or metric == "minimum to open")
     hours = None
     if (re.search(r"\bhours?\b|what time", low)
@@ -79,6 +83,7 @@ def parse(question: str) -> Question:
         metric=metric,
         rate_intent=rate_intent,
         rate_implied=rate_implied,
+        wants_rate=(rate_intent or earns) and metric in (None, "rate"),
         wants_list=bool(_LIST_WORDS.search(low)),
         superlative="max" if _SUPER_MAX.search(low) else ("min" if _SUPER_MIN.search(low) else None),
         wants_url=bool(_URL_WORDS.search(low)),

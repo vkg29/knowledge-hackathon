@@ -145,6 +145,8 @@ class Answerer:
             cands = [c for c in cands if self._has_names(q, c[1])]
         # Every row in a rate answer must itself be about the product asked for.
         cands = [c for c in cands if self._covered(q, c[1])]
+        if any(q.quals.variants <= r.quals.variants for _, r in cands):
+            cands = [c for c in cands if q.quals.variants <= c[1].quals.variants]
         if not cands:
             return None
         if q.quals.amount:
@@ -346,7 +348,12 @@ def _compatible(q: Question, row: Row) -> bool:
         return False
     if q.metric and q.metric != "rate" and not any(m == q.metric for m, _ in row.values):
         return False
+    if q.wants_rate and not any(m in _RATE_FAMILY and "%" in v for m, v in row.values):
+        return False
     return True
+
+
+_RATE_FAMILY = ("rate", "dividend rate", "APY", "APR")
 
 
 def _tightest_tier(cands: list) -> list:

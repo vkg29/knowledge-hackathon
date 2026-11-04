@@ -204,6 +204,53 @@ Share Savings
 | Share Savings | 0.05% | 0.05% |
 """
 
+IRA_RATES = """# Rates
+
+Special Certificates
+
+| Certificate | Dividend Rate | APY |
+| --- | --- | --- |
+| 17 Month Fixed Certificate Special | 4.06% | 4.10% |
+
+Special IRAs
+
+| IRA | Dividend Rate | APY |
+| --- | --- | --- |
+| Roth: 17 Month Fixed Special | 4.01% | 4.05% |
+| Traditional: 17 Month Fixed Special | 4.01% | 4.05% |
+
+Rates are effective as of 09/01/2026.
+"""
+
+IRA_BLOG = """# Why some prefer certificate IRAs
+
+Insured funds: At Dupaco, IRA deposits are insured separately by the NCUA up to $250,000.
+
+Late fee: $25 per missed payment.
+"""
+
+HOME_EQUITY_OLD = """# Home equity
+
+Home Equity Loan (Fixed)
+
+| Loan | APR |
+| --- | --- |
+| Loan - Standard (60 mo) | 6.25% |
+
+Rates are effective as of 05/01/2026.
+"""
+
+HOME_EQUITY_NEW = """# Rates
+
+Home Equity Loan (Fixed)
+
+| Loan | Term | APR |
+| --- | --- | --- |
+| Loan - Standard | 60 Months | 6.50% |
+
+Rates are effective as of 09/01/2026.
+"""
+
 STUDENT_TABLE = """# Student Certificates
 
 Student Certificates
@@ -381,6 +428,20 @@ class Authority(unittest.TestCase):
         narrow = ks.answer("What is the 60-month auto loan APR for a 2026 car?")
         self.assertIn("5.39%", broad.text)
         self.assertEqual((numbers(narrow.text), narrow.conflict_note), (["5.39%"], broad.conflict_note))
+
+    def test_rate_question_is_answered_only_by_rows_stating_a_rate(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/rates": IRA_RATES, "/learn/ira-certificates": IRA_BLOG}))
+        for q in ("What is the IRA certificate rate?", "What rate does an IRA certificate pay?",
+                  "How much does an IRA certificate earn?"):
+            ans = ks.answer(q)
+            self.assertNotIn("$250,000", ans.text, q)
+            self.assertEqual(sorted(set(numbers(ans.text))), ["4.01%", "4.05%"], q)
+        self.assertIn("$25", ks.answer("What is the late fee?").text)
+
+    def test_term_abbreviation_is_not_a_product_word(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/home-equity": HOME_EQUITY_OLD, "/rates": HOME_EQUITY_NEW}))
+        self.assertEqual(numbers(ks.answer("What is the 60-month home equity loan APR?").text), ["6.50%"])
+        self.assertEqual(len(ks.conflicts()), 1)
 
     def test_copy_stating_fewer_figures_that_agree_is_support(self):
         ks = system(snap("01_2026-09-28_only", "2026-09-28", {
