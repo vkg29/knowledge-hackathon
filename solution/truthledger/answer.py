@@ -13,13 +13,12 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from typing import Optional
-from urllib.parse import urlparse
 
 from .catalogue import family_matches
 from .identity import FactKey
 from .ledger import Ledger, Row
 from .matcher import QUESTION_HEADING, LexicalIndex, row_document
-from .pages import AUTHORITY, canonical_url, page_kind
+from .pages import AUTHORITY, canonical_url
 from .qualifiers import amount_match, parse_terms, terms_match, years_match
 from .query import Question, parse
 from .rules import explain, is_live, truth_key
@@ -393,8 +392,9 @@ class Answerer:
         # The same statement printed by several pages or crawls (press-release boilerplate, a running count
         # such as "the fifth time Forbes recognized Dupaco"): one fact, stated by its truest, newest dated copy.
         tmpl = _template(best.text)
-        rivals = [r for i, (s, r) in enumerate(scored) if _template(r.text) == tmpl
-                  or (i < 60 and s >= 0.6 * best_s and _similar(_template(r.text), tmpl))]
+        rivals = [r for i, (s, r) in enumerate(scored)
+                  if (i < 60 and s >= 0.6 * best_s and _similar(_template(r.text), tmpl))
+                  or (r.page.published and _template(r.text) == tmpl)]
         yearly = _by_year(rivals)
         if yearly:   # the same statement about different years: separate facts, the year is a qualifier
             if q.year in yearly:
@@ -425,7 +425,7 @@ class Answerer:
         same = [r for r in rivals if r is not winner and counts(r.text) == counts(winner.text)]
         support = sorted(same, key=lambda r: (-r.authority, r.page.url))
         text = self._join_places(winner, self._passage(winner))
-        lede = self._lede(q, winner)
+        lede = self._lede(q, winner, need_percent)
         if lede is not None:   # an article about the name asked: its lead paragraph says what the news is
             head = self._passage(lede)
             text = head if _sentence(winner.text) in head else f"{head} {text}"
@@ -457,13 +457,14 @@ class Answerer:
         title = set(tokens(row.page.title.split("|")[0]))
         return all(n in title for n in q.names)
 
-    def _lede(self, q: Question, row: Row) -> Optional[Row]:
+    def _lede(self, q: Question, row: Row, need_percent: bool) -> Optional[Row]:
         """The lead paragraph of a dated article whose title names what the question names ('What recognition
         has Dupaco received from Forbes?' -> 'Forbes ranks Dupaco as a top credit union in America'): a news
         story's first paragraph states the news, where a later sentence only details it. Not for a question
-        that wants a figure or a shape (an address, a phone number), which the matching sentence states."""
-        if (row.authority not in (1, 2) or not q.names or q.answer_type or q.wants_number or not _ASKS_WHAT.match(q.raw)
-                or not self._titled(q, row)):
+        that wants a figure (a count or a rate) or a shape (an address, a phone number), which the matching
+        sentence states."""
+        if (row.authority not in (1, 2) or not q.names or q.answer_type or q.wants_number or need_percent
+                or q.rate_intent or q.rate_implied or not _ASKS_WHAT.match(q.raw) or not self._titled(q, row)):
             return None
         for r in self.ledger.rows_by_version[row.page.vid][: row.pos]:
             if r.kind == "text" and not _is_header(r.text) and len(r.text.split()) >= 12:
@@ -642,8 +643,6 @@ class Answerer:
             res = self._rates_link(q, k, on_date)
             if res is not None:
                 return res
-        present = self.ledger.snapshots[k].pages   # canonical url -> page version this crawl saw
-        hosts = {urlparse(u).netloc for u in present}   # the site's own hosts
         view = self._view(k)
         rows = self.ledger.rows
         words = {t: w for t, w in q.words.items() if t not in _URL_WORDS}
@@ -657,14 +656,8 @@ class Answerer:
                 if not url.startswith("http"):
                     continue
                 url = _clean_link(url)
-                # a descriptive label that says what the link does ('Join Dupaco'); a printed address is no label
-                label = "" if re.search(r"www\.|https?:|\.com\b|/", anchor) else anchor
-                bonus = 1.0 + sum(0.5 for t in tokens(label) if t in words)
+                bonus = 1.0 + sum(0.5 for t in tokens(anchor) if t in words)
                 vote = s * bonus * _PROSE_WEIGHT[row.authority] * (0.3 + self._coverage(q, row)) ** 2
-                if urlparse(url).netloc in hosts and canonical_url(url) not in present:
-                    vote *= 0.5   # an old link inside the site to a page this crawl no longer has
-                if page_kind(url) in ("news", "blog") and not words.keys() & _ARTICLE_WORDS:
-                    vote *= 0.5   # a press release or blog post is read, not where a member does something
                 votes[url] = max(votes[url], vote)
                 source.setdefault(url, row)
         if not votes:
@@ -726,8 +719,6 @@ def _cited(res: Result) -> Result:
     return res
 
 
-
-_ARTICLE_WORDS = {stem(w) for w in "news newsroom press release article blog story announcement".split()}
 _HOURS_WORDS = {stem(w) for w in ("hour lobby drive up thru through open close branch branches office time times what "
                                   "general typical usual regular").split()}
 _URL_WORDS = {stem(w) for w in "link url web page website address site".split()}

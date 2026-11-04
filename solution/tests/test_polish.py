@@ -111,6 +111,30 @@ class NewestStatement(unittest.TestCase):
         self.assertEqual(paths(ans)[0], "/newsroom/may")
 
 
+class ProseRates(unittest.TestCase):
+    """A rate stated only in prose is read from the product asked about, as the matching sentence."""
+
+    def test_same_line_on_another_product_page_is_not_a_rival(self):
+        older = {"/loans/personal-loans": "# Personal Loans\n\nRates as low as 8.99% APR.\n",
+                 "/loans/auto-loans": "# Auto Loans\n\nRates as low as 5.49% APR.\n"}
+        newer = {**older, "/loans/auto-loans": "# Auto Loans\n\nRates as low as 5.24% APR.\n"}
+        titles = {"/loans/personal-loans": "Personal Loans", "/loans/auto-loans": "Auto Loans"}
+        ks = system(snap("01_2026-05-12", "2026-05-12", older, titles), snap("02_2026-09-28", "2026-09-28", newer, titles))
+        ans = ks.answer("What rate do personal loans have?")
+        self.assertIn("8.99%", ans.text)
+        self.assertNotIn("5.24%", ans.text)
+
+    def test_rate_question_on_an_article_is_not_led_by_its_first_paragraph(self):
+        pages = {"/newsroom/holiday-club": release(
+            "October 1, 2026", "Holiday Club returns for members",
+            "Last year 1,250 members saved a combined $2.4 million for the holidays, an average of $1,920 each.",
+            "The Holiday Club pays 2.00% APY on every balance.", footer=False)}
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", pages))
+        ans = ks.answer("What APY does the Holiday Club pay?")
+        self.assertIn("2.00%", ans.text)
+        self.assertNotIn("1,250", ans.text)
+
+
 CONTACT = """# We're Here to Help
 
 {lead}
@@ -229,22 +253,11 @@ OLD_LINK_BLOG = release("March 1, 2021", "Certificate basics",
                         "Open a [term-share certificate](https://cu.example/personal/savings-accounts/certificates/) "
                         "to earn certificate rates higher than savings.", footer=False)
 
-JOIN_PAGE = """# Ready to Become Our Newest Member?
-
-When you join, you become a member-owner. [Join today](https://join.cu.example/)
-"""
-
-MEETING_NEWS = release("March 3, 2026", "Annual membership meeting",
-                       "Members can join the annual membership meeting. Learn more at "
-                       "[www.cu.example/newsroom/annual-membership-meeting](https://cu.example/newsroom/annual-membership-meeting).",
-                       footer=False)
-
 
 class Links(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        pages = {"/personal/savings-account": SAVINGS_PAGE, "/rates": RATE_SHEET, "/learn/blog/certificate-basics": OLD_LINK_BLOG,
-                 "/about/join": JOIN_PAGE, "/newsroom/annual-membership-meeting": MEETING_NEWS}
+        pages = {"/personal/savings-account": SAVINGS_PAGE, "/rates": RATE_SHEET, "/learn/blog/certificate-basics": OLD_LINK_BLOG}
         cls.ks = system(snap("01_2026-09-28_only", "2026-09-28", pages))
 
     def test_rates_link_is_the_product_page_rates_section_the_site_links_to(self):
@@ -256,10 +269,6 @@ class Links(unittest.TestCase):
     def test_where_on_the_website_is_a_link_question(self):
         ans = self.ks.answer("Where on the website can I find certificate rates?")
         self.assertIn("savings-account#rates", ans.text)
-
-    def test_printed_address_is_not_a_link_label_and_articles_are_not_destinations(self):
-        ans = self.ks.answer("What's the link to join?")
-        self.assertIn("https://join.cu.example", ans.text)
 
 
 def boilerplate(date, sentence):

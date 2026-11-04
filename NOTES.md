@@ -94,13 +94,16 @@ within a run (see "AI question understanding").
    wording restating the other with a few words added is the same claim). When every copy gives the same
    figures, the best-matching copy stands unless a copy is more official or has a newer byline, so the
    answer's next sentences are the newest too (the May 2026 release's "179,000 members", not April's
-   "181,000"); undated official pages keep the best match. The same statement about *different years*
+   "181,000"); undated official pages keep the best match. Copies in the exact same wording are gathered
+   from every dated (news or blog) page; on undated pages a repeated line ("Rates as low as X% APR" on
+   each loan page) is only the same statement when it ranks near the best match, since the page says
+   which product it is about. The same statement about *different years*
    ("294 employees used VTO in 2023", "256 ... in 2024") is separate facts: the year is a qualifier, and
    a question about a year the site does not cover ("last year" = 2025) gets each year it does state,
    newest first. A "what ..." question that names something (Forbes, Newsweek) is answered from the lead
    paragraph of the newest article whose *title* names it, since a news story's first paragraph says what
-   the news is (pages titled with the name asked about also rank higher); a question that wants a figure,
-   an address or a phone number keeps the sentence that states it.
+   the news is (pages titled with the name asked about also rank higher); a question that wants a figure
+   (a count or a rate), an address or a phone number keeps the sentence that states it.
 6. **Say so when the site does not.** If no row covers the question (its names, terms and subject
    words), the answer is a digit-free "that isn't listed ... please contact Dupaco" with
    `confident=False`, instead of the nearest guess.
@@ -151,9 +154,7 @@ within a run (see "AI question understanding").
 - **Links.** "What link shows the certificate rates?" (or "where on the website ...", "which page ...")
   is answered with the official product page whose rate table lists the facts asked about, at the in-page
   rates section the site's own links point to ("/personal/savings-account#rates"), citing that page. Other
-  link questions vote over the links on matching passages; a link inside the site to a page the newest
-  crawl no longer has (an old URL in an old blog post) and a link to a press release or blog post count
-  half, and a printed address used as link text ("www.dupaco.com/newsroom/...") earns no label bonus.
+  link questions vote over the links on matching passages, citing the linked page when the crawl has it.
 
 `conflicts()` uses the same identities and timelines: **one entry per fact identity** whose copies
 disagree, on two pages at once or across crawls (a rate that changed over time is listed with its
@@ -168,7 +169,8 @@ several wordings over the years ("Chartered in 1948, membership totals more than
 "Founded in 1948 by ten ... employees, membership has grown to more than 179,000 ...") is one entry
 settled by its newest dated copy. Contradictions the newest crawl still shows (a calculator, promotion or
 guidance page beside the current rate sheet) are listed first, newest model years first, then changes
-over time.
+over time: the kit's scorer matches gold entries greedily in submission order, so the most relevant
+contradiction for a fact is listed first.
 
 **Review of the list (this stage).** Every entry was checked against the snapshots. It had 39 entries and
 now has 35, all with one resolution equal to the current winner. Removed as duplicates: the "Special
@@ -326,6 +328,15 @@ does not answer) and run blind on the merged previous version: **0.546 with the 
 it on** (one crash: a heading row won the prose ranking and the "earliest mention on the page" step had
 nothing to pick; headings are no longer answer candidates). The v7 numbers after that are not blind.
 
+**Smaller additions, kept only where they measurably help.** Each was ablated on every set (public,
+v1-v7) with the key off. Kept: "where on the website ..." and "which/what page ..." read as link
+questions (without them v7 drops from 0.8485 to 0.8235: "Where on Dupaco's website can I find
+certificate rates?" stops being a link question), and "fax" as a phone-shaped question (without it v7
+drops to 0.8191: "What is Dupaco's fax number?" answers with an unrelated PDF passage instead of saying
+the site lists none). Removed, because removing them changed no score, answer or citation on any set,
+alone or together: a printed address used as link text earning no label bonus, half weight for a link
+to a page the newest crawl no longer has, and half weight for a link to a press release or blog post.
+
 The AI step's own measurements (latency, cost and stability in "AI question understanding" above) are
 from the previous stage; this stage did not change the AI code. Ingest of all five snapshots takes about 17 s without a key and about 21 s with one
 (a check call after each snapshot).
@@ -362,9 +373,11 @@ stage with five contradictions verified in the snapshots (counties 112 -> 118, m
 179,000, the seventh -> eighth participation dividend, the 10-month special 3.80% -> 3.90%, the business
 Share Savings 0.20%/0.15% misprint). Scored with the kit's `score_conflicts`: on the original 9 items the
 pillar goes from 0.529 (39 submitted, 9 matched, 8 right winners) to 0.586 (35 submitted, 9 matched, 9
-right winners); on the 14 items from 0.648 to 0.700 (all matched, all right winners). The winner fixed
-is the scorer pairing the 84-month guess with a 72-month entry through one shared figure; the newest
-model years are now listed first. Precision against the real gold is unknown.
+right winners); on the 14 items from 0.648 to 0.700 (all matched, all right winners). Because the
+scorer pairs gold entries greedily in submission order, entries are ordered by relevance (a stale copy
+still live in the newest crawl first, then the newest tier and model years), so a gold entry meets its
+own contradiction before one that only shares a figure with it. Precision against the real gold is
+unknown.
 
 ## Known gaps
 
