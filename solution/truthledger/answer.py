@@ -1,8 +1,11 @@
-"""Answer composition: find candidate rows, let the truth rules pick, phrase the winner.
+"""Answer composition: find the facts a question asks about, take their truth winners, phrase them.
 
-Every answer is built from ledger rows only. The text quotes the winning row(s) and nothing
-else, so a stale or other-tier value never appears next to the right one; the same question
-always produces byte-identical text because every step is a deterministic sort.
+Rate questions are matched onto fact identities (`identity.py`); the value of each identity is
+its winner over every live copy (`timeline.py`), never just the copies the question's words
+pulled up. Change questions read the identities' histories. Prose, hours and link questions use
+the ledger's passages. Every answer is built from ledger rows only: the text quotes the winning
+row(s) and nothing else, so a stale or other-tier value never appears next to the right one, and
+the same question always produces byte-identical text because every step is a deterministic sort.
 """
 from __future__ import annotations
 
@@ -11,14 +14,17 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .catalogue import family_matches
+from .identity import FactKey
 from .ledger import Ledger, Row
-from .matcher import LexicalIndex, row_document
+from .matcher import QUESTION_HEADING, LexicalIndex, row_document
 from .pages import AUTHORITY
-from .qualifiers import VARIANT_WORDS, amount_match, parse_terms, terms_match, years_match
+from .qualifiers import amount_match, parse_terms, terms_match, years_match
 from .query import Question, parse
-from .rules import explain, fact_roots, is_live, truth_key
-from .text import has_digit, norm
-from .vocab import GENERIC, STOPWORDS, expand, stem, tokens, with_prefixes
+from .rules import explain, is_live, truth_key
+from .text import has_digit, long_date, norm
+from .timeline import figures, value_text
+from .vocab import STOPWORDS, expand, stem, tokens, with_prefixes
 
 REFUSAL = ("I'm sorry, that isn't listed on Dupaco's website, so I can't confirm it. "
            "Please contact Dupaco directly by phone, in Shine Online Banking or at any branch, and a team member can help.")
@@ -55,23 +61,41 @@ class Answerer:
         self.index = LexicalIndex(docs)
         self._view_ids: dict[int, frozenset] = {}
         self._page_cache: dict[int, frozenset] = {}
+        self.product_vocab = frozenset(w for key in ledger.identities().values() for w in key.product)
 
     # ---- entry point ---------------------------------------------------------------------
     def answer(self, question: str, as_of: Optional[str] = None) -> tuple[Result, int]:
-        q = parse(question)
         latest = self.ledger.snapshots[-1].taken_on
+        q = parse(question, today=as_of or latest)
         if as_of is None and q.as_of_hint and q.as_of_hint < latest:
             as_of = q.as_of_hint
         k = self.ledger.snapshot_for(as_of)
         on_date = min(as_of, latest) if as_of else self.ledger.snapshots[k].taken_on
+        tabled = q.rate_intent or q.rate_implied
+        if as_of is None and q.year and tabled and not q.change and q.year < int(latest[:4]):
+            first = self.ledger.snapshots[0].taken_on
+            if q.year < int(first[:4]):   # before the first crawl: the site as it stood then is not known
+                return Result(f"I can't confirm what was listed in {q.year}: the oldest copy of Dupaco's website I have is "
+                              f"from {long_date(first)}. Please contact Dupaco for older rates.", confident=False), 0
+            as_of = f"{q.year}-12-31"
+            k = self.ledger.snapshot_for(as_of)
+            on_date = min(as_of, latest)
+        if q.change and not (q.wants_url or q.hours) and (tabled or q.family or q.product & self.product_vocab):
+            res = self._change(q, k)
+            if res is not None:
+                return res, k
+        if _ELIGIBILITY_Q.search(q.raw) and not (q.wants_url or q.hours or q.rate_intent):
+            res = self._eligibility(q, k, on_date)
+            if res is not None:
+                return res, k
         if q.wants_url:
             res = self._url(q, k, on_date)
         elif q.hours:
             res = self._hours(q, k, on_date)
         elif q.rate_intent:
             res = self._rate(q, k, on_date) or self._prose(q, k, on_date, need_percent=True)
-        elif q.rate_implied:
-            res = self._rate(q, k, on_date) or self._prose(q, k, on_date)
+        elif q.rate_implied:   # "what does it pay?" still needs a stated rate, not any passage about the product
+            res = self._rate(q, k, on_date) or self._prose(q, k, on_date, need_percent=q.wants_rate)
         else:
             res = self._prose(q, k, on_date)
         return (res or Result(REFUSAL, confident=False)), k
@@ -82,12 +106,13 @@ class Answerer:
             self._view_ids[k] = frozenset(r.rid for r in self.ledger.view(k))
         return self._view_ids[k]
 
-    def _coverage(self, q: Question, row: Row) -> float:
-        """Share (idf-weighted) of the question's subject words that the row or its page mention."""
+    def _coverage(self, q: Question, row: Row, extra: frozenset = frozenset()) -> float:
+        """Share (idf-weighted) of the question's subject words that the row or its page mention; `extra`
+        are words the row's fact identity is known by (its product name), as if the row printed them."""
         words = [w for w in dict.fromkeys(q.key_words) if not w.isdigit()]
         if not words:
             return 1.0
-        own = self._own_terms(row)
+        own = self._own_terms(row) | extra
         ctx = self.doc_terms[row.rid] | self._page_terms(row)
         total = hit = 0.0
         for w in words:
@@ -109,13 +134,6 @@ class Answerer:
         text = row.text + (" " + row.subject if row.kind == "table" else "")
         return frozenset(with_prefixes(tokens(text)))
 
-    def _names_product(self, q: Question, row: Row, best: Row) -> bool:
-        """Does the row's own caption or label name the product asked for: every one of the question's
-        product words (not an asked variant), or failing that a product word of the best row?"""
-        asked = _asked_variant_tokens(q)
-        own = self._own_terms(row)
-        return all(w in own for w in _product_words(q)) or bool(_family_words(row, asked) & _family_words(best, asked))
-
     def _page_terms(self, row: Row) -> frozenset:
         key = row.page.vid
         if key not in self._page_cache:
@@ -126,8 +144,8 @@ class Answerer:
         terms = self.doc_terms[row.rid] | self._page_terms(row)
         return all(n in terms for n in q.names)
 
-    def _covered(self, q: Question, row: Row, threshold: float = 0.5) -> bool:
-        return self._coverage(q, row) >= threshold
+    def _covered(self, q: Question, row: Row, threshold: float = 0.5, extra: frozenset = frozenset()) -> bool:
+        return self._coverage(q, row, extra) >= threshold
 
     def _scored(self, q: Question, allowed: frozenset) -> list[tuple[float, Row]]:
         rows = self.ledger.rows
@@ -135,77 +153,187 @@ class Answerer:
 
     # ---- rates and other table values ----------------------------------------------------
     def _rate(self, q: Question, k: int, on_date: str) -> Optional[Result]:
-        view = self._view(k)
-        allowed = frozenset(rid for rid in view if self.ledger.rows[rid].kind == "table")
-        listing = q.wants_list and not _specific(q)
-        cands = []
-        for s, row in self._scored(q, allowed):
-            if not is_live(row, on_date) or not _compatible(q, row):
-                continue
-            extra = row.quals.variants - q.quals.variants
-            if extra:
-                s *= (0.8 if listing else 0.55) ** len(extra)
-            missing = q.quals.variants - row.quals.variants
-            if missing:
-                s *= 0.5 ** len(missing)
-            cands.append((s, row))
-        if q.names:
-            cands = [c for c in cands if self._has_names(q, c[1])]
-        # An IRA question is answered only by IRA rows, never by the plain certificate of the same term.
-        cands = [c for c in cands if _names_account_kind(q, c[1])]
-        # Every row in a rate answer must itself be about the product asked for.
-        cands = [c for c in cands if self._covered(q, c[1])]
-        if any(q.quals.variants <= r.quals.variants for _, r in cands):
-            cands = [c for c in cands if q.quals.variants <= c[1].quals.variants]
-        if not cands:
+        sel = self._select(q, k, on_date)
+        if sel is None:
             return None
-        if q.quals.amount:
-            cands = _tightest_tier(cands)
-        names = self.ledger.product_names()
-        cands = _prefer_plainer(q, cands, names, listing)
-        # Copies of one fact compete by the truth rules before relevance is cut: the truest copy
-        # stands for the fact with the best relevance any copy earned.
-        truest = fact_roots([r for _, r in cands], names)
-        relevance: dict[int, float] = defaultdict(float)
-        for s, r in cands:
-            root = truest[r.rid]
-            relevance[root.rid] = max(relevance[root.rid], s)
-        facts = sorted(((relevance[r.rid], r) for _, r in cands if truest[r.rid] is r), key=lambda c: (-c[0], c[1].rid))
-        top = facts[0][0]
-        band = [c for c in facts if c[0] >= (0.6 if listing else 0.75) * top]
-        if listing:   # distinct facts: an official page's most relevant plain product (not a variant) picks the page,
-            # preferring one that names the question's last product word ("share certificate" is a certificate)
-            head = _product_words(q)[-1:]
-            pool = ([c for c in facts if c[1].quals.variants <= q.quals.variants and all(w in self._own_terms(c[1]) for w in head)]
-                    or [c for c in band if c[1].quals.variants <= q.quals.variants] or band)
-            best = max(pool, key=lambda c: (AUTHORITY[c[1].page.kind], c[0], truth_key(c[1])))[1]
-        else:
-            best = max(band, key=lambda c: (truth_key(c[1]), c[0]))[1]
-        if not listing:
-            rows = [r for _, r in band if _same_table(r, best)]
-        else:   # everything the truest page lists for this product family, by the rows' own words
-            plain = best.quals.variants <= q.quals.variants
-            rows = list({truest[r.rid].rid: truest[r.rid] for _, r in cands
-                         if r is best or (r.page.vid == best.page.vid and (not plain or r.quals.variants <= q.quals.variants)
-                                          and self._names_product(q, r, best))}.values())
-            if _catalogue(q):   # plus every other product in the band that names what was asked
-                rows += [r for _, r in band if r not in rows and self._names_product(q, r, best)]
-        rows = _dedupe(sorted(rows, key=lambda r: (r.page.vid != best.page.vid, r.page.url, r.pos)))
-        if q.superlative:
-            rows = [_extreme(rows, q)]
-        rows = rows[:12]
-        shown = {r.rid for r in rows}
-        copies = [r for _, r in cands if r.rid not in shown and truest[r.rid].rid in shown]
-        losers = [r for r in copies if _differs(r, truest[r.rid], q)]
+        rows, members, winners = sel
+        ids = self.ledger.identities()
+        shown_keys = {ids[r.rid] for r in rows}
+        copies = [r for key in shown_keys for r in members[key] if r.rid != winners[key].rid]
+        losers = [r for r in copies if _differs(r, winners[ids[r.rid]], q)]
         note = None
         if losers:
             loser = max(losers, key=truth_key)
             note = ("Other pages show a different figure; kept the value from the truest source: "
-                    + explain(truest[loser.rid], loser) + ".")
+                    + explain(winners[ids[loser.rid]], loser) + ".")
         shown_pages = {r.page.vid for r in rows}
-        support = [r for r in sorted(copies, key=lambda r: (-r.authority, r.page.url))
-                   if not _differs(r, truest[r.rid], q) and r.page.vid not in shown_pages]
+        support = [r for r in sorted(copies, key=lambda r: (-r.authority, r.page.url, r.rid))
+                   if not _differs(r, winners[ids[r.rid]], q) and r.page.vid not in shown_pages]
         return Result("; ".join(_render(r, q) for r in rows) + ".", rows, note=note, support=support)
+
+    def _select(self, q: Question, k: int, on_date: str, siblings: bool = True) -> Optional[tuple]:
+        """The winning rows that answer a rate question at snapshot k, with that snapshot's members and
+        winners. Rows only *find* fact identities; each identity's value comes from its truth winner
+        over every live row of that identity, so how a question is worded never changes which copy wins."""
+        tl = self.ledger.timeline()
+        ids = self.ledger.identities()
+        members, winners = tl.members(k, on_date), tl.winners(k, on_date)
+        allowed = frozenset(rid for rid in self._view(k) if rid in ids and ids[rid] in members)
+        listing = q.wants_list and not _specific(q)
+        rel: dict = {}
+        for s, row in self._scored(q, allowed):
+            if not is_live(row, on_date) or not _compatible(q, row):
+                continue
+            key = ids[row.rid]
+            if not family_matches(q.family, key.family):
+                continue
+            if q.names and not self._has_names(q, row):
+                continue
+            if not self._covered(q, row, extra=key.product):   # every fact in a rate answer must be about what was asked
+                continue
+            rel[key] = max(rel.get(key, 0.0), s)
+        facts = self._identities(q, rel, winners, listing)
+        if not facts:
+            return None
+        top = facts[0][0]
+        band = [f for f in facts if f[0] >= (0.6 if listing else 0.75) * top]
+        if listing:
+            # the product family asked about, as the most authoritative page presents it
+            plain = [f for f in facts if f[1].kinds <= q.kinds] or band
+            best = max(plain, key=lambda f: (AUTHORITY[f[2].page.kind], f[0], truth_key(f[2])))
+            family = best[1].family
+            extra_ok = {"business"} if _catalogue(q) else set()
+            # the best fact's family, or every family of a group the question named ("home equity")
+            families = {family} | ({f[1].family for f in facts if f[1].family and family_matches(q.family, f[1].family)}
+                                   if q.family and q.family != family else set())
+            chosen = [f for f in facts if f[1].family in families and (f[1].kinds - q.kinds) <= extra_ok
+                      and (f[1].family is not None or f in band)]
+        else:
+            # A question that names no product ('the money market rate') means the one the most official
+            # page lists, among the close candidates, not a promotion's product that repeats its words.
+            if not q.product & self.product_vocab:
+                wide = [f for f in facts if f[0] >= 0.5 * top]
+                level = max(f[2].authority for f in wide)
+                lead = max(f[0] for f in wide if f[2].authority == level)
+                band = [f for f in wide if f[2].authority == level and f[0] >= 0.75 * lead]
+            best = max(band, key=lambda f: (truth_key(f[2]), f[0]))
+            # Roth and Traditional are parallel versions of one IRA product: an "IRA" question gets both
+            loose = _WRAPPERS - q.kinds
+            group = (best[1].family, best[1].product, best[1].kinds - loose)
+            chosen = [f for f in band if (f[1].family, f[1].product, f[1].kinds - loose) == group]
+            if siblings:
+                chosen += self._siblings(q, chosen, winners, k)
+        keys = list(dict.fromkeys(f[1] for f in chosen))
+        rows = sorted({winners[key].rid: winners[key] for key in keys}.values(),
+                      key=lambda r: (r.page.vid != best[2].page.vid, r.page.url, r.pos))
+        rows = _dedupe(rows)
+        if q.superlative:
+            rows = [_extreme(rows, q)]
+        return rows[:12], members, winners
+
+    # ---- what changed: a fact's history ---------------------------------------------------
+    def _change(self, q: Question, end_k: int) -> Optional[Result]:
+        """Answer from the facts' histories: the asked facts are found as of the end of the period (or,
+        for a fact no longer listed, the last crawl that listed it) and followed through every crawl.
+        A superseded figure is always stated as a past one, with the date it changed."""
+        snaps = self.ledger.snapshots
+        if q.until:
+            end_k = self.ledger.snapshot_for(q.until)
+        ids = self.ledger.identities()
+        sel = None
+        for ref_k in range(end_k, -1, -1):   # the newest crawl that lists the fact; a plain match beats a variant
+            found = self._select(q, ref_k, snaps[ref_k].taken_on, siblings=False)
+            if found is None:
+                continue
+            plain = any(not ids[r.rid].kinds - q.kinds for r in found[0])
+            if sel is None or plain:
+                sel = found
+            if plain:
+                break
+        if sel is None:
+            return None
+        anchors = [ids[r.rid] for r in sel[0]]
+        start_k = self.ledger.snapshot_for(q.since) if q.since else 0
+        histories = [(key, self._history(q, key, end_k)) for key in anchors]
+        metric = q.metric if q.metric in ("APY", "APR", "dividend rate", "minimum to open") else None
+        lines, rows = [], []
+        for key, runs in histories:
+            text, used = _describe_history(q, runs, start_k, end_k, metric, snaps)
+            if text:
+                lines.append(text)
+                rows.extend(used)
+        if not lines:
+            return None
+        if q.wants_list and len(lines) > 1:
+            changed = [ln for ln, (_, runs) in zip(lines, histories) if len(_window(runs, start_k)) > 1]
+            lines = changed or lines
+        confident = not all(t.startswith(_GONE) for t in lines)
+        return Result(" ".join(lines[:8]), list({r.rid: r for r in rows}.values()), confident=confident)
+
+    def _history(self, q: Question, key: FactKey, end_k: int) -> list:
+        """[(first snapshot, last snapshot, winning row or None)] runs of one fact up to snapshot end_k. With
+        a model year in the question, each crawl's slot is the one whose printed years contain it."""
+        tl = self.ledger.timeline()
+        runs: list = []
+        for k in range(end_k + 1):
+            winners = tl.winners(k)
+            row = winners.get(key)
+            if q.quals.years and key.tier[:1] == ("year",):
+                row = next((w for kk, w in sorted(winners.items(), key=lambda kv: kv[1].rid)
+                            if (kk.family, kk.product, kk.kinds, kk.terms) == (key.family, key.product, key.kinds, key.terms)
+                            and years_match(q.quals.years, w.quals.years)), None)
+            if runs and _same_figures(runs[-1][2], row):
+                runs[-1] = (runs[-1][0], k, row if row is not None else runs[-1][2])
+            else:
+                runs.append((k, k, row))
+        return runs
+
+    def _identities(self, q: Question, rel: dict, winners: dict, listing: bool) -> list:
+        """(relevance, FactKey, winning row) for the identities a question asks about, best first."""
+        need = q.kinds   # an IRA, business, jumbo or refinance question is answered only by such facts
+        facts = []
+        for key, s in rel.items():
+            w = winners[key]
+            if years_match(q.quals.years, w.quals.years) is False or amount_match(q.quals.amount, w.quals.amount) is False:
+                continue   # a model year or balance falls in the tier the slot's *current* row prints
+            if not need <= key.kinds:
+                continue
+            extra = key.kinds - q.kinds   # kinds the question did not ask for ('jumbo' for a plain special)
+            if extra:
+                s *= (0.8 if listing else 0.55) ** len(extra)
+            facts.append((s, key, w))
+        named = q.product & self.product_vocab
+        if named and any(named <= f[1].product for f in facts):
+            facts = [f for f in facts if named <= f[1].product]
+        if q.quals.amount:
+            facts = _tightest_tier(facts)
+        facts = _prefer_plainer(q, facts, listing)
+        return sorted(facts, key=lambda f: (-f[0], f[2].rid))
+
+    def _siblings(self, q: Question, chosen: list, winners: dict, k: int) -> list:
+        """The jumbo version of a named special when the question did not pick a size: it is part of the
+        complete current answer, unless its figure equals one the asked product itself showed at another
+        time (then the answer could not be read unambiguously, so it is left out)."""
+        if "jumbo" in q.kinds or k != len(self.ledger.snapshots) - 1:
+            return []   # an "as of" answer states the asked size only: old sibling figures read like the asked one's
+        tl = self.ledger.timeline()
+        have = {f[1] for f in chosen}
+        out = []
+        for s, key, w in chosen:
+            if "jumbo" in key.kinds or not key.product:
+                continue
+            twin = FactKey(key.family, key.product, key.kinds | {"jumbo"}, key.terms, key.tier)
+            tw = winners.get(twin)
+            if tw is None or twin in have or not _compatible(q, tw):
+                continue
+            own = {n for span in tl.spans(key) for _, ns in span.figures for n in ns}
+            mine = {n for _, ns in figures(tw) for n in ns}
+            if mine & own:
+                continue
+            out.append((s, twin, tw))
+            have.add(twin)
+        return out
+
 
     # ---- prose ---------------------------------------------------------------------------
     def _prose(self, q: Question, k: int, on_date: str, need_percent: bool = False) -> Optional[Result]:
@@ -248,9 +376,18 @@ class Answerer:
         # the truest, newest copy wins.
         tmpl = _template(best.text)
         rivals = [r for s, r in scored[:60] if s >= 0.6 * best_s and _similar(_template(r.text), tmpl)]
+        yearly = _by_year(rivals)
+        if yearly:   # the same statement about different years: separate facts, the year is a qualifier
+            if q.year in yearly:
+                rivals = yearly[q.year]
+            elif q.year:
+                return self._yearly(q, yearly)
+            else:
+                rivals = yearly[max(yearly)]
+            best = max(rivals, key=truth_key)
         disagree = any(_NUMBER.findall(r.text) != _NUMBER.findall(best.text) for r in rivals)
         winner = max(rivals, key=truth_key) if disagree else best
-        if winner is best:
+        if winner is best and not yearly:
             # Near-ties on one page: the earliest mention is usually the lead/definition.
             cov = self._coverage(q, best)
             lead = [r for s, r in scored[:20] if r.page.vid == best.page.vid and s >= 0.7 * best_s
@@ -262,12 +399,43 @@ class Answerer:
             note = "Older or less authoritative pages state this differently; kept: " + explain(winner, max(losers, key=truth_key)) + "."
         same = [r for r in rivals if r is not winner and _NUMBER.findall(r.text) == _NUMBER.findall(winner.text)]
         support = sorted(same, key=lambda r: (-r.authority, r.page.url))
-        text = self._passage(winner)
+        text = self._join_places(winner, self._passage(winner))
         if q.wants_action:
             link = self._action_link(q, winner)
             if link and link not in text:
                 text += f" You can get started here: {link}"
         return Result(text, [winner], note=note, support=support)
+
+    def _yearly(self, q: Question, yearly: dict) -> Result:
+        """The site has no statement for the asked year: give each year it does state, newest first."""
+        rows = [max(yearly[y], key=truth_key) for y in sorted(yearly, reverse=True)[:3]]
+        lead = f"The site has no figure for {q.year}. " if q.year else ""
+        return Result(lead + " ".join(_sentence(r.text) for r in rows), rows)
+
+    def _eligibility(self, q: Question, k: int, on_date: str) -> Optional[Result]:
+        """'Who can join?' / 'Who is eligible to become a member?' is answered by the section of the site
+        that says who may join (a heading like 'Who Can Join' or 'You're Eligible to Join If'), the most
+        official copy first, read from its first line and joined with where the area it names is."""
+        sections: dict = defaultdict(list)
+        for r in self.ledger.view(k):
+            if r.kind == "text" and is_live(r, on_date) and _ELIGIBILITY_HEAD.search(r.section.rsplit(" > ", 1)[-1]):
+                sections[(r.page.vid, r.section)].append(r)
+        if not sections:
+            return None
+        rows = max(sections.values(), key=lambda rs: (rs[0].authority, len(rs), -len(rs[0].page.url), -rs[0].page.vid))
+        first = min(rows, key=lambda r: r.pos)
+        return Result(self._join_places(first, self._passage(first)), [first])
+
+    def _join_places(self, row: Row, text: str) -> str:
+        """A passage that defines an area only by name ('live or work within our charter area') is joined
+        with the sentence on the same page that says where that area is ('You can find us in Iowa,
+        Illinois and Wisconsin'), so the answer names the places."""
+        if not _AREA_TERM.search(text) or len(_STATES.findall(text)) >= 2:
+            return text
+        for r in self.ledger.rows_by_version[row.page.vid]:
+            if r.kind == "text" and len(set(_STATES.findall(r.text))) >= 2 and len(r.text) <= 240:
+                return f"{text} {_sentence(r.text)}"
+        return text
 
     def _action_link(self, q: Question, row: Row) -> Optional[str]:
         """The call-to-action link that goes with a passage, preferring one the question names."""
@@ -282,11 +450,12 @@ class Answerer:
     def _passage(self, row: Row, limit: int = 420) -> str:
         """The winning sentence plus the sentences that follow it in the same paragraph or list."""
         siblings = self.ledger.rows_by_version[row.page.vid]
-        if row.section.endswith("?"):   # an FAQ answer reads best from its first sentence
+        heading = row.section.rsplit(" > ", 1)[-1]
+        if heading.endswith("?") or QUESTION_HEADING.search(heading):   # an FAQ answer reads best from its first sentence
             first = row.pos
             while first > 0 and siblings[first - 1].section == row.section and siblings[first - 1].kind == "text":
                 first -= 1
-            if row.pos - first <= 2 and not any(_is_header(r.text) for r in siblings[first:row.pos]):
+            if row.pos - first <= 4 and not any(_is_header(r.text) for r in siblings[first:row.pos]):
                 row = siblings[first]
         parts = [_sentence(row.text)]
         size = len(parts[0])
@@ -360,11 +529,9 @@ _URL_WORDS = {stem(w) for w in "link url web page website address site".split()}
 
 
 def _compatible(q: Question, row: Row) -> bool:
+    """Row-level checks that every copy of one fact shares (term, metric); model years and balances are
+    checked on the identity's winning row instead."""
     if terms_match(q.quals.terms, row.quals.terms) is False:
-        return False
-    if years_match(q.quals.years, row.quals.years) is False:
-        return False
-    if amount_match(q.quals.amount, row.quals.amount) is False:
         return False
     if q.metric and q.metric != "rate" and not any(m == q.metric for m, _ in row.values):
         return False
@@ -390,48 +557,152 @@ def _names_account_kind(q: Question, row: Row) -> bool:
     return not asked or asked <= set(tokens(f"{where} {row.section}"))
 
 
-def _tightest_tier(cands: list) -> list:
-    """With a dollar amount in the question, keep each table's narrowest tier that contains it."""
+_GONE = "No longer offered:"
+_WRAPPERS = frozenset({"roth", "traditional"})
+_ELIGIBILITY_Q = re.compile(r"\b(who|eligib\w*|qualif\w*|requirements?|criteria)\b.{0,40}"
+                           r"\b(join|become an? (\w+ )?member|membership|be an? member)\b|"
+                           r"\b(join|membership)\b.{0,40}\b(eligib\w*|qualif\w*|requirements?|criteria)\b", re.I)
+_ELIGIBILITY_HEAD = re.compile(r"\b(eligib\w*|who can)\b.*\b(join|member\w*)\b|\bfield of membership\b|"
+                              r"\bmembership (requirements?|eligibility)\b", re.I)
+_AREA_TERM = re.compile(r"\b(charter area|field of membership|service area|our (area|communities|footprint)|counties we serve)\b", re.I)
+_STATES = re.compile(r"\b(Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|"
+                     r"Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|"
+                     r"Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|"
+                     r"North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|"
+                     r"Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)\b")
+_ASKS_VALUE = re.compile(r"\b(what|how much)\b.*\b(pay|paid|earn|earned|rate|apy|apr|yield|charge|cost)\b", re.I)
+
+
+def _same_figures(a: Optional[Row], b: Optional[Row]) -> bool:
+    if a is None or b is None:
+        return a is b
+    return figures(a) == figures(b)
+
+
+def _when(row: Row, k: int, prev: Optional[Row], snaps) -> str:
+    """When a run's figures took effect: the printed effective date when the page gives a new one."""
+    if row.effective and row.effective <= snaps[k].taken_on and (prev is None or prev.effective != row.effective):
+        return f"effective {long_date(row.effective)}"
+    return f"as of the {long_date(snaps[k].taken_on)} crawl"
+
+
+def _window(runs: list, start_k: int) -> list:
+    return [r for r in runs if r[1] >= start_k]
+
+
+def _describe_history(q: Question, runs: list, start_k: int, end_k: int, metric: Optional[str], snaps) -> tuple:
+    """One sentence on how a fact moved, and the rows it quotes."""
+    listed = [r for r in runs if r[2] is not None]
+    if not listed:
+        return "", []
+    last_row = listed[-1][2]
+    name = _name(last_row)
+    current = runs[-1][2] is not None and runs[-1][1] == end_k
+    if q.change == "still":
+        if current:
+            return f"Yes, the {name} is still listed: {value_text(last_row, metric)}.", [last_row]
+        gone = f"the {long_date(snaps[listed[-1][1] + 1].taken_on)} crawl" if listed[-1][1] + 1 < len(snaps) else "the newest crawl"
+        if _ASKS_VALUE.search(q.raw):
+            return (f"The {name} is no longer offered: it has not been listed on Dupaco's website since {gone}. When it was last "
+                    f"listed ({long_date(snaps[listed[-1][1]].taken_on)} crawl) it paid {value_text(last_row, metric)}."), [last_row]
+        return f"{_GONE} the {name} no longer appears on Dupaco's rate pages.", []
+    steps = []   # (row, when it took effect, first snapshot) for each listed run, oldest first
+    prev = None
+    for k0, _k1, row in runs:
+        if row is not None:
+            steps.append((row, _when(row, k0, prev, snaps), k0))
+        prev = row
+    tail = "" if current else f" It is no longer listed on Dupaco's website (last listed in the {long_date(snaps[listed[-1][1]].taken_on)} crawl)."
+    if q.change in ("before", "when"):
+        if len(steps) < 2:
+            return f"The {name} has not changed since it was first listed ({steps[0][1]}): {value_text(last_row, metric)}.{tail}", [last_row]
+        (old, _w0, _), (new, w1, _) = steps[-2], steps[-1]
+        verb = "pays" if current else "paid"
+        if q.change == "when":
+            return (f"The {name} last changed {w1}: from {value_text(old, metric)} to {value_text(new, metric)}.{tail}"), [new, old]
+        return (f"Before its most recent change ({w1}), the {name} paid {value_text(old, metric)}; it now {verb} "
+                f"{value_text(new, metric)}.{tail}"), [new, old]
+    window = [st for st in steps if st[2] >= start_k or st is steps[-1]]
+    base = [st for st in steps if st[2] < start_k]
+    if base:
+        window = [base[-1]] + [st for st in window if st is not base[-1]]
+    if len(window) < 2:
+        since = f" since {long_date(q.since)}" if q.since else ""
+        return f"The {name} has not changed{since}: {value_text(last_row, metric)} ({window[-1][1]}).{tail}", [last_row]
+    relabelled = len({r.label for r, _, _ in window}) > 1
+    parts = [f"{value_text(r, metric)} ({r.label + ', ' if relabelled else ''}{w})" for r, w, _ in window]
+    move = _direction(window[0][0], window[-1][0], metric)
+    end = " which is the current rate." if current else "."
+    return f"The {name} {move}: " + ", then ".join(parts) + "," + end + tail, [window[-1][0]] + [r for r, _, _ in window[:-1]]
+
+
+def _direction(old: Row, new: Row, metric: Optional[str]) -> str:
+    a, b = _headline(old, metric), _headline(new, metric)
+    if a is None or b is None or a == b:
+        return "changed"
+    return f"went {'up' if b > a else 'down'} by {abs(b - a):.2f} percentage points" if "%" in value_text(new, metric) else "changed"
+
+
+def _headline(row: Row, metric: Optional[str]) -> Optional[float]:
+    m = _NUMBER.search(value_text(row, metric))
+    return float(m.group(0).replace(",", "")) if m else None
+
+
+def _name(r: Row) -> str:
+    """'17 Month Fixed Certificate Special', or 'Auto & Motorcycle Loans 2024-27 Model Year (60 Months)'."""
+    label = r.label
+    if r.caption and not (set(tokens(r.caption)) - _CAPTION_FILLER) & set(tokens(label)):
+        label = f"{r.caption} {label}"
+    if r.qual_text:
+        label += f" ({r.qual_text})"
+    return label
+
+
+_YEAR = re.compile(r"\b(19[5-9]\d|20\d\d)\b")
+
+
+def _by_year(rivals: list) -> dict:
+    """year -> rivals, when the copies of one statement each describe a different single year ('294
+    employees used VTO in 2023', '256 ... in 2024'); empty when they are copies of one fact."""
+    out: dict = defaultdict(list)
+    for r in rivals:
+        years = set(_YEAR.findall(r.text))
+        if len(years) != 1:
+            return {}
+        out[int(years.pop())].append(r)
+    return dict(out) if len(out) > 1 else {}
+
+
+def _tightest_tier(facts: list) -> list:
+    """With a dollar amount in the question, keep each product's narrowest tier that contains it."""
     best: dict = {}
-    for s, r in cands:
-        if r.quals.amount:
-            key = (r.page.vid, r.caption, r.quals.terms, r.quals.variants)
-            width = r.quals.amount[1] - r.quals.amount[0]
-            best[key] = min(best.get(key, width), width)
-    out = []
-    for s, r in cands:
-        if r.quals.amount:
-            key = (r.page.vid, r.caption, r.quals.terms, r.quals.variants)
-            if r.quals.amount[1] - r.quals.amount[0] > best[key]:
-                continue
-        out.append((s, r))
-    return out
+    for s, key, w in facts:
+        if w.quals.amount:
+            g = (key.family, key.product, key.kinds, key.terms)
+            width = w.quals.amount[1] - w.quals.amount[0]
+            best[g] = min(best.get(g, width), width)
+    return [f for f in facts if not f[2].quals.amount
+            or f[2].quals.amount[1] - f[2].quals.amount[0] <= best[(f[1].family, f[1].product, f[1].kinds, f[1].terms)]]
 
 
 def _specific(q: Question) -> bool:
     return bool(q.quals.terms or q.quals.years or q.quals.amount or q.superlative)
 
 
-def _same_table(a: Row, b: Row) -> bool:
-    return a.page.vid == b.page.vid and a.caption == b.caption and a.section == b.section
-
-
-def _prefer_plainer(q: Question, cands: list, names: dict, listing: bool) -> list:
+def _prefer_plainer(q: Question, facts: list, listing: bool) -> list:
     """A product named with words the question did not use loses to a plainer sibling of the same
-    term and variant that is also a candidate ('Student' vs 'Regular' certificates for a
+    family, kinds and term that is also a candidate ('Student' vs plain certificates for a
     '12-month certificate')."""
     known: dict[tuple, set] = defaultdict(set)
-    for _, r in cands:
-        if names[r.rid] is not None:
-            known[(r.quals.terms, r.quals.variants)].add(names[r.rid])
-    asked = set(q.words) | _VARIANT_TOKENS
+    for _, key, _w in facts:
+        known[(key.family, key.kinds, key.terms)].add(key.product)
+    asked = set(q.product)
     out = []
-    for s, r in cands:
-        own = names[r.rid]
-        plainer = [n for n in known[(r.quals.terms, r.quals.variants)] if own and n < own]
+    for s, key, w in facts:
+        plainer = [n for n in known[(key.family, key.kinds, key.terms)] if n < key.product]
         if plainer:
-            s *= (0.8 if listing else 0.55) ** max(len(own - n - asked) for n in plainer)
-        out.append((s, r))
+            s *= (0.8 if listing else 0.55) ** max(len(key.product - n - asked) for n in plainer)
+        out.append((s, key, w))
     return out
 
 
@@ -458,23 +729,6 @@ def _wanted_metrics(q: Question) -> set:
     if q.metric and q.metric != "rate":
         return {q.metric}
     return {"rate", "APR", "APY", "dividend rate", "fee"}   # a "minimum to open" is shown only when asked
-
-
-def _asked_variant_tokens(q: Question) -> set:
-    return {t for v in q.quals.variants for t in tokens(v)}
-
-
-def _product_words(q: Question) -> list:
-    """The question's words that name the product, in order (not numbers or asked variants)."""
-    asked = _asked_variant_tokens(q)
-    return [w for w in q.key_words if not w.isdigit() and w not in asked]
-
-
-def _family_words(r: Row, asked: set) -> set:
-    """Words of a row's caption and label that name a product ('visa', 'certificate', 'home'),
-    leaving out tier words and the variants the question asked for."""
-    return {t for t in tokens(f"{r.caption} {r.label}")
-            if t.isalpha() and t not in STOPWORDS and t not in GENERIC and t not in asked}
 
 
 def _dedupe(rows: list[Row]) -> list[Row]:
@@ -514,7 +768,6 @@ def _render(r: Row, q: Question) -> str:
 
 
 _NEVER_SHOWN = ("points", "payment example", "minimum to open")
-_VARIANT_TOKENS = {t for w in VARIANT_WORDS for t in tokens(w)}
 _CAPTION_FILLER = {stem(w) for w in "rates rate loans loan accounts account savings regular special".split()}
 
 

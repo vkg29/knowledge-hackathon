@@ -2,214 +2,234 @@
 
 **API keys: none.** The system runs entirely on the machine, makes no network calls (not to the
 credit union's site, not to any model service), and downloads nothing at ingest or answer time. Its
-only dependency is `snowballstemmer` (pure Python). Optional AI steps are a planned follow-up (see
-the end of this file); without them, and today, the system works on rules alone.
+only dependency is `snowballstemmer` (pure Python). Optional AI steps are planned for later stages
+(see the end of this file); today the system works on rules alone.
 
-## The idea: the ledger is the judge
+## The idea: identity first, then a timeline, then the truth rules
 
 While loading, every page of every snapshot is turned into **ledger rows**: one row per rate-table
-row (product, caption, qualifiers such as term, balance tier, loan amount, model-year range or
-variant, every value column such as dividend rate / APY / rate / APR / fee / minimum to open, and the
-"Rates are effective as of" date printed under the table), one row per "Label: value" line, one row
-per branch-hours block, and one row per prose sentence or bullet (kept with its heading path, FAQ
-question and page). A table under an in-page tab link (the May-August rate sheets caption a table
-only "Regular" under a "Term-Share Certificate Rates" tab) takes the tab label as part of its
-caption, so its rows still name the product. Each row remembers its page, the page kind, the page's
-printed byline date (news, blog) and the snapshot it came from. History is never thrown away: rows
-are stored once per distinct page version, and the site *as it stood on a date* is the newest
-version of every page at or before that date (a page that drops out of a later crawl keeps its last
-content).
+row (label, caption, the in-page tab it sits under, qualifiers such as term, balance tier, loan
+amount or model-year range, every value column such as dividend rate / APY / rate / APR / fee, and
+the "Rates are effective as of" date printed under the table), one row per "Label: value" line, one
+row per branch-hours block, and one row per prose sentence or bullet (kept with its heading path and
+page). Each row remembers its page, the page kind, the page's byline date (news, blog) and the
+snapshot it came from. Nothing is thrown away: the site *as it stood on a date* is the newest version
+of every page at or before that date.
 
-Answering never asks anything to "pick the right number". It finds the rows that are about the
-question, lets the written truth rules below decide which of them is true, and phrases the answer
-straight from the winning row(s), quoting nothing else. The same question therefore gives
-byte-identical text and sources every time (checked across processes with different hash seeds).
+Then, still at load time, three things are computed once for the whole ledger:
+
+1. **A fixed identity card for every rate fact** (`identity.py`): the catalogue family (certificate,
+   savings, money market, checking, mortgage, auto loan, credit card, ... from a generic
+   credit-union catalogue in `catalogue.py`), the product's distinctive name words inside that
+   family ("share", "bright", "special", "platinum", "investor choice", "1st"; none for the plain
+   product such as regular certificates), the account kinds that make it a different product (IRA,
+   Roth, Traditional, business, refinance, intro, jumbo), the term, and the tier (a normalised
+   balance or loan-amount band, or a model-year *slot*). Exact rules come first: the row's own label
+   names the product when it names a family ("Bright Savings"), else the nearest caption ("Rewards
+   Visa" over a row labelled "Standard", "Investor's Choice" over "$25,000+"), else the tab; the
+   nearest caption decides the family before the tab, so "High-Yield Savings" under a "Money Market
+   Account Rates" tab is savings and a table captioned only "Regular" under "Term-Share Certificate
+   Rates" is a certificate. Looser rules come second: a table whose caption names no product inherits
+   the name its own page printed for the same table in another crawl (the May sheet's unnamed
+   checking table is September's "1st Rate Checking"); a shorter name joins the one fuller name of
+   its family that contains it; an unnamed balance-tier table joins the one named product that prints
+   all of its dollar bands (a landing page's "Checking Accounts" table is 1st Rate Checking).
+   **Model-year tiers are aligned by position, not by their printed years:** the newest-years row of
+   a table is slot 0 in every crawl, so "2023-26 Model Year" renamed to "2024-27 Model Year" stays one
+   fact, and a calculator still printing "2023-26" is an older copy of that same fact. A question's
+   model year is mapped onto the slot whose *current, winning* row prints it.
+2. **Winners per snapshot** (`timeline.py`): for every identity and every crawl, the truth rules
+   below pick one row from *every* live row of that identity in the site as it stood then. The
+   winner never depends on which rows a question happens to pull up, so rewordings cannot group
+   copies differently.
+3. **A timeline per identity**: consecutive crawls whose winners state the same figures form one span,
+   valid from the date the winning page prints ("effective 06/02/2026"), else from the crawl that
+   first showed it, until the next span starts or still current. "What changed since May?" and "what
+   did it pay before it went up?" are lookups on these histories.
+
+Answering never asks anything to "pick the right number". It parses the question onto the same
+fields (family, product words, kinds, term, model year, amount, metric, the date asked about), uses
+the lexical matcher only to *find* candidate identities, takes each identity's winner, and phrases
+the answer straight from the winning rows. The same question gives byte-identical text and sources
+every time (checked across processes with different hash seeds).
 
 ## How it decides what is current (the truth rules)
 
-1. **Qualifiers first.** Different term, balance tier, loan amount, model-year range, variant
-   (jumbo, IRA, Roth/Traditional, business, refinance, intro) or metric (rate vs APY vs APR) are
-   *different facts*, never a contradiction. A question that names a term, model year or dollar
-   amount only matches rows that carry a matching one (the narrowest tier that contains the
-   amount); rows with variants the question did not ask for are demoted, so "17-month special" means
-   the regular special, not the jumbo or IRA one. The same goes for a product's distinguishing name
-   words when a plainer product of the same term competes: "12-month certificate" means the regular
-   certificate, not the student one. A variant the question names wins over rows without it when
-   any row carries it ("IRA certificate rate" answers the IRA rows). A question naming IRA or Roth
-   (or Traditional together with IRA or retirement) is answered only by table rows whose caption,
-   label or section, or passages whose text or section, carries those words, so an IRA term the site
-   does not list is refused rather than answered by the plain certificate of that term ("12-month IRA
-   certificate" when only 18-, 36- and 60-month IRAs exist), and an IRA money market question is not
-   answered by a plain money market promotion. "Traditional 30 year fixed home loan" is a mortgage
-   question, not an IRA one. A question asking for a
-   rate ("rate", "APY", "what does it earn?") is answered only from rows that state a percentage;
-   a dollar amount is read as a fee only when its label or column says fee, cost, price or charge.
-   A list question ("What are the certificate rates?") is answered from the official page of the
-   most relevant plain product (personal certificates, not business ones) whose own caption or label
-   names the question's last product word ("share certificate" is a certificate, not share
-   savings). It lists that page's rows whose own caption or label names every product word asked
-   for or shares a product word with that row, without variants it did not ask for; a catalogue
-   question ("Which cards do you offer?") adds the other products that pass the same check.
+1. **Different identities are different facts.** A different term, balance tier, loan amount,
+   model-year slot, product or account kind is never a contradiction, and a row's rate and APY are
+   compared metric by metric. Every kind a question names is required: an IRA, business, jumbo or
+   refinance question is answered only by facts of that kind (no Roth IRA money market exists, so
+   that question is refused instead of answered with certificate rates; "after the intro period"
+   asks for the ongoing rate, not the intro one). A product word the question names that the site
+   uses ("Bright", "1st Rate", "special") selects that product (an ordinal is one name word however
+   it is spelled: "First Rate" is "1st Rate", "Second Chance" is "2nd Chance"); a plainer product
+   beats a sibling whose extra name words the question did not use ("12-month certificate" is the
+   regular one, not the Student one). When the question names no product, the product of the most
+   official page among the close candidates is meant (Investor's Choice from the rate sheet, not a
+   promotion's money market).
 2. **Ended things are not current.** Rows from a page that says the offer has ended, and rows that
-   state their own past end date ("offer ended 2025-09-30"), drop out of current answers. They still
-   answer "as of" questions about the time they were live.
+   state their own past end date, drop out of current answers; they still answer "as of" questions
+   about the time they were live. A fact that no crawl lists any more is reported as no longer
+   offered, with its last value only when the question asks for it.
 3. **Authority.** An official page with a dated rate table beats an official product page, which
    beats a promotion landing page, a downloaded document (PDF), a press release, a blog post, and
-   finally a calculator (calculators embed rate tables that are rarely refreshed). Two table rows
-   are *copies of one fact* when they have the same term, tier and variant, state at least one
-   common metric, and name the same product: the caption and label words left after dropping
-   generic ones (certificate, regular, rate, loan, account, …), where a shorter name joins the one
-   fuller name that contains it ("Auto Loans" is "Auto & Motorcycle Loans", but plain "Certificates"
-   is never "Student Certificates"); product names are worked out once over the whole ledger, so
-   every question sees the same products. Copies compete on these rules *before* relevance is cut,
-   at any authority level, so a blog or calculator row worded closer to the question cannot push
-   the rate sheet out, and two official sheets for the same product agree on the newer one. Rows
-   are taken truest first and each joins the truest copy it matches directly, so a stale
-   "2023-26" row never merges the current "2024-27" and "2021-23" tiers. A copy is only a losing
-   figure where it disagrees on a metric both rows state.
-4. **Recency among equals.** The date printed on the page wins: "Rates are effective as of …" for
-   tables, the byline date for press releases and blog posts. Then the crawl that last saw it.
+   finally a calculator (calculators embed rate tables that are rarely refreshed).
+4. **Recency among equals.** The date printed on the page wins ("Rates are effective as of ...", or
+   a press release's byline date); then a copy the crawl itself saw beats one carried forward from an
+   older crawl; then, among equally official and dated copies, the page about that product family
+   (the home-loans page for a mortgage row) is cited before a page that embeds the same table.
 5. **Repeated statements.** The same sentence printed with different figures (press-release
    boilerplate such as "It has over 600 employees and N branch office locations", or "the fifth time
-   Forbes recognized Dupaco") is one fact; the newest dated copy wins.
+   Forbes recognized Dupaco") is one fact; the newest dated copy wins. The same statement about
+   *different years* ("294 employees used VTO in 2023", "256 ... in 2024") is separate facts: the year
+   is a qualifier, and a question about a year the site does not cover ("last year" = 2025) gets each
+   year it does state, newest first.
 6. **Say so when the site does not.** If no row covers the question (its names, terms and subject
-   words), the answer is a digit-free "that isn't listed … please contact Dupaco" with
+   words), the answer is a digit-free "that isn't listed ... please contact Dupaco" with
    `confident=False`, instead of the nearest guess.
 
-`conflicts()` uses the same rules and the same copy identity: one entry per product-and-term whose
-same tier was printed with different values (across pages in one crawl or across crawls), plus boilerplate statements repeated
-on five or more dated pages (or ordinal counts like "fourth"/"fifth" time) with different figures. Each
-entry lists every value seen, the value the rules pick for the newest snapshot, and why (which rule
-decided). Tiers and rate-vs-APY columns are never reported. On the full data it reports 30 conflicts.
+## What the answers contain
+
+- **Complete facts for the identity asked.** A current answer about a named special states its jumbo
+  version too ("17 Month Fixed Certificate Special 4.10% APY; Jumbo 4.20% APY"), unless the jumbo
+  figure equals one the asked special itself showed at another time. "As of" answers state the asked
+  size only, because old sibling figures read like the asked product's other dated values. Tiered
+  products list every tier the question did not narrow ("the 30-year rate" gives all four loan-amount
+  tiers); an IRA question gets both the Roth and the Traditional version.
+- **What changed / before / since / still offered.** "How has the 17-month special changed since June
+  2026?" follows the facts asked for through every crawl and says "3.85% APY (effective June 2, 2026),
+  then 3.95% (effective July 14, 2026), then 4.10% (effective September 1, 2026), which is the
+  current rate"; "before its most recent increase", "when did it last change", "between May and
+  September" and "is it still offered" are read from the same history. A superseded figure is always
+  stated as a past one, with the date it changed. Only wording about time makes a question a
+  change question: "lower than the jumbo", "does it go up with a bigger balance" or "how does it
+  change with the term" compare products and get today's values; "lower", "higher", "go up",
+  "change", "compare" or "different" count as a change only beside a time word ("did", "was",
+  "since", "ago", "last", a month or a year, but not a model year); "trend" always asks for the
+  history. With a model year in the question, each crawl's slot is the one whose printed years
+  contained it, so "a 2023 car since May" correctly goes from the May "2023-26" tier (5.19%) to
+  today's "2021-23" tier (5.64%).
+- **Relative dates** count back from the newest crawl (28 Sep 2026): "last month" is 31 Aug, "two
+  months ago" is 28 Jul, "this past May" or "in May" is 31 May 2026, "last year" is 2025, and "over
+  the past year" or "in the last year" is the twelve months up to the newest crawl, read as a history.
+  A rate question about a year before the first crawl says the site is not known for that year.
+- **Two passages joined.** An answer that defines an area only by name ("live or work within our
+  charter area") is joined with the sentence on the same page that names the places ("You can find us
+  in Iowa, Illinois and Wisconsin"). Membership-eligibility questions go straight to the section of the
+  site that says who may join, read from its first line.
+
+`conflicts()` uses the same identities and timelines: **one entry per fact identity** whose copies
+disagree, on two pages at once or across crawls (a rate that changed over time is listed with its
+winner). The values are only that identity's own figures, newest first; the resolution is the single
+value-set the rules pick for the newest snapshot (for example "3.86% dividend rate / 3.90% APY"); the
+reason names the rule that decided and the dated history of the winning figure. A copy that only
+repeats part of another ("15.50%" of "15.50% - 21.00%") is not a contradiction. Identical histories
+under twin products (a special and its IRA copy) are reported once. Boilerplate statements repeated on
+five or more dated pages (or ordinal counts like "fourth"/"fifth" time) with different figures are
+listed too. On the full data it reports 39 entries.
 
 ## Architecture
 
-`solution/solution.py` builds `truthledger.system.LedgerKnowledge`. The package is small and
-layered:
+`solution/solution.py` builds `truthledger.system.LedgerKnowledge` (the public contract in
+`harness/contract.py` is unchanged). The package is layered:
 
-- `extract.py` (page → rows) and `qualifiers.py` (term, years, amount, variants for rows *and*
-  questions, so both sides speak one vocabulary), `pages.py` (page kind, byline date).
-- `ledger.py` stores rows per page version and builds the "as of" views; `rules.py` holds the truth
-  rules; `conflicts.py` builds the contradiction report.
-- `query.py` parses a question (subject words, names, qualifiers, metric, and intent: rate, list,
-  superlative, hours, link, expected answer shape such as an address, phone, routing number or date);
-  `matcher.py` is the local meaning matcher; `answer.py` routes the question (rate table, prose,
-  hours, link), applies the rules and phrases the result.
+- `extract.py` (page -> rows, with table index and tab label) and `qualifiers.py` (term, years,
+  amount, variants for rows *and* questions), `pages.py` (page kind, byline date).
+- `catalogue.py` (generic credit-union product families and product name words) and `identity.py`
+  (identity cards, lineage across crawls, model-year slots), computed once per ingest.
+- `ledger.py` stores rows per page version and builds the "as of" views; `timeline.py` holds the
+  per-snapshot winners and per-identity spans; `rules.py` holds the truth rules; `conflicts.py`
+  builds the contradiction report.
+- `query.py` parses a question (subject words, names, family, product words, kinds, qualifiers,
+  metric, change intent and period, the year or date asked about, expected answer shape);
+  `matcher.py` is the local lexical matcher; `answer.py` routes the question (rate table, change
+  history, eligibility, prose, hours, link), applies the rules and phrases the result.
 - `hooks.py` is the seam for optional AI steps (no-op by default).
 
-**The meaning matcher** is a BM25 index over each row's own words (full weight), its FAQ question
-(0.8) and its heading/caption/page title (0.4), with Snowball stemming, a 6-letter prefix form for
-long words ("recognition" ↔ "recognized"), number words ("twelve month" → 12), and a small generic
-banking thesaurus ("CD" → certificate, "mortgage" → home loan, "shut" → close). Capitalised names in
-a question (places, brands, programs) must appear on the answering row or its page. All of this runs
-in well under a tenth of a second per question.
-
-I compared it against a hybrid that adds a local embedding model (BAAI/bge-small-en-v1.5, ONNX via
-`fastembed`, no key, one-time ~67 MB download): embedding all 25,668 distinct row texts took 358 s
-of ingest, and with the embedding boost at two weights the scores were **unchanged** on every set
-(public 0.8655, held-out v1 0.9669, held-out v2 1.0 at both weights) while p95 latency rose from
-0.06 s to 0.10 s. A static model2vec model was worse on spot checks. Because it did not raise either
-score, the embedding model is not shipped.
+**The lexical matcher** is a BM25 index over each row's own words (full weight), its FAQ question or
+question-like heading (0.8) and its heading/caption/page title (0.4), with Snowball stemming, a
+6-letter prefix form for long words, number words ("twelve month" -> 12) and a small generic banking
+thesaurus ("CD" -> certificate, "mortgage" -> home loan). Capitalised names in a question must appear
+on the answering row or its page. It only finds candidates; the identity card says which fact a
+candidate is, and the truth rules say which copy of that fact is true.
 
 ## Scores
 
-Run from the repository root after copying the kit's `snapshots_zip/` there:
+Run from the repository root after copying the kit's `snapshots_zip/` there (see README.md). All
+numbers below are from the kit's own `harness/run_eval.py`; no conflicts gold ships with the kit, so
+`final_score` equals accuracy when speed and consistency are 1.0.
 
-```bash
-python harness/run_eval.py --submission solution --eval eval/public_eval.jsonl
-python harness/run_eval.py --submission solution --eval eval/heldout_eval.jsonl
-python harness/run_eval.py --submission solution --eval eval/heldout_v2_eval.jsonl
-python harness/run_eval.py --submission solution --eval eval/heldout_v3_eval.jsonl
-python -m unittest discover -s solution/tests -v
-```
+The acceptance bar for this stage: beat the first version on the public practice set, no regression on
+any held-out set, and zero stale numbers. Ties on v1, v2 and v3 meet it (v2 is already at the 1.000 ceiling).
 
-| Question set | Questions | Accuracy (qa_score) | Consistency | p95 latency |
-|---|---|---|---|---|
-| Public practice set (kit) | 40 | **0.866** | 1.00 | 0.06 s |
-| Held-out v1 (ours: reworded + new) | 40 | 0.967 | 1.00 | 0.05 s |
-| Held-out v2 (ours: rewordings of the public questions) | 25 | 1.000 | 1.00 | 0.04 s |
-| Held-out v3 (ours: new phrasings and facts) | 25 | 0.972 | 1.00 | 0.02 s |
-| Kit selftest fixture (with its conflicts gold) | 5 | 1.000 (final 1.000) | 1.00 | <0.01 s |
+| Question set | Questions | Merged first version | This stage | Consistency | p95 latency |
+|---|---|---|---|---|---|
+| Public practice set (kit) | 40 | 0.866 | **0.920** | 1.00 | 0.04 s |
+| Held-out v1 (reworded + new) | 40 | 0.967 | 0.967 | 1.00 | 0.05 s |
+| Held-out v2 (rewordings of the public questions) | 25 | 1.000 | 1.000 | 1.00 | 0.04 s |
+| Held-out v3 (new phrasings and facts) | 25 | 0.972 | 0.972 | 1.00 | 0.02 s |
+| Held-out v4 (what changed, relative dates, renamed tiers, IRA / money market) | 34 | 0.368 | 1.000 | 1.00 | 0.07 s |
+| Held-out v5 (fresh rewordings, the final check) | 27 | not run | 1.000 | 1.00 | 0.04 s |
+| Kit selftest fixture (with its conflicts gold) | 5 | 1.000 | 1.000 (final 1.000) | 1.00 | <0.01 s |
 
-Ingest of all five snapshots takes about 15 s. Without a conflicts gold file the harness reports
-`final_score` = accuracy (0.8655 on the public set), since speed and consistency are both 1.0.
+Zero stale-trap hits and zero errors on every set. Ingest of all five snapshots takes about 17 s.
 
-**Read the held-out numbers with care.** Each held-out set was written before the fixes it later
-guided, and its *first* run is the honest blind number: v1 scored 0.679 on first run, v2 0.663,
-v3 0.819 (v3 was written last, after all other tuning). The fixes those runs prompted were generic
-(intent wording, number words, acronym names, scaled amounts like "$2 million", answer shapes), and
-were kept only when they did not lower any other set, but the later numbers above are no longer blind.
-Expect the hidden set to land between the blind first-run figures and the public score.
+**Read the held-out numbers with care: only the first run of each set is blind.** v1 scored 0.679 on
+its first run, v2 0.663, v3 0.819 (all three against the first version, in PR 1). v4 was written for
+this stage *before* any of its code and scored **0.368** blind on the merged first version (3 trap
+hits: it could not answer what-changed, relative-date or renamed-tier questions). v5 was written
+after the redesign and before its last fixes, and scored **0.815** blind (1 trap hit, "after the
+intro period" read as asking for the intro rate). The fixes those runs prompted are generic (filler
+verbs such as "advertise", the official product first when none is named, the negated intro, the
+eligibility route) and were kept only when they lowered no other set, but the later v4 and v5
+numbers are no longer blind. Expect the hidden set to land between the blind first runs and the
+public score.
 
-The conflicts pillar cannot be scored locally (no gold list ships with the kit). Against a 6-item
-guess list I wrote from the practice questions (60-month auto, 30-year mortgage, branch count,
-Forbes, 10-month jumbo special, 12-month certificate), all 6 match with the right winner; precision
-against the real gold is unknown.
+The conflicts pillar cannot be scored locally against the real gold. Against `eval/conflicts_guess.json`,
+a 9-item guess list written from the practice questions (60- and 84-month auto, 30-year mortgage,
+branch count, Forbes, 10-month jumbo special, 12-month certificate, 17-month special, 1st Rate
+Checking), all 9 are matched and 8 have the right winner; the miss is the scorer pairing the 84-month
+guess with the 72-month entry through one shared figure plus a topic word. Precision against the real
+gold is unknown (39 entries submitted).
 
-Score progression during development: public 0.68 → 0.74 → 0.78 → 0.84 → 0.87 as the extractor,
-truth rules and question routing improved (details in the commit history).
+## Known gaps
 
-## Known gaps by question category
-
-- **conflict_resolution / eligibility:** "Who can join?" answers with the join page's list ("live
-  or work within our charter area …") but the states (Iowa, Illinois, Wisconsin) live on other pages;
-  joining two passages is not implemented.
-- **current_value:** "How can I update my contact information?" has no direct answer on the site; the
-  system returns a related passage instead of the phone number the graders expect. Fine print with
-  many clauses in one sentence (e.g. the Platinum Visa late fee) is hard to match lexically.
-- **temporal_as_of:** relative dates in the question text ("last year") are not resolved; only
-  explicit dates ("as of May 15, 2026", "on 6/1/2026", "in mid-May 2026" = the 15th, "in May 2026" =
-  the month's last day) and the `as_of` argument are used. A written date is never read as a model
-  year.
-- **stale_trap:** an open question like "What recognition has Dupaco received from Forbes?" can land
-  on press-release boilerplate instead of the newest Forbes release (a reworded "How many times has
-  Forbes recognized Dupaco?" is answered correctly).
-- **list_completeness:** the practice item "Get me the rate for the certificate of accounts" has no
-  `must_include`, so it scores 0 for any answer under the kit's scorer (it now lists the personal
-  certificate rates). Lists stop at 12 rows, and a list keeps sibling products on the same page that
-  share a product word ("What are the mortgage rates?" leads with the Mortgage Rate Relief Program
-  row, the only row that says "mortgage").
-- **Paraphrase in general:** matching is lexical plus a thesaurus. The blind first-run scores show
-  that unseen wordings still miss sometimes; an AI question-rewriting step is the planned fix.
+- **Free-text paraphrase.** Matching is lexical plus a thesaurus. Questions whose words the site does
+  not use still miss: "What recognition has Dupaco received from Forbes?" lands on press-release
+  boilerplate instead of "the fifth time Forbes recognized Dupaco" (the reworded "How many times has
+  Forbes recognized Dupaco?" is answered correctly); "How can I update my contact information?",
+  "What is Dupaco's main phone number?", "Which digital wallets can I load my cards into?" and the
+  Platinum Visa late fee (inside a long fine-print sentence) return a related passage instead. An AI
+  question-understanding step is the next stage's fix.
+- **Source credit.** Some correct answers cite a page other than the one the graders list (the
+  routing number from the contact page rather than the cash-management page; general lobby hours
+  from branch press releases rather than the home page).
+- **List answers** stop at 12 rows, and a change history at 8 lines; a "what changed with mortgage
+  rates since May?" answer lists every purchase tier's full history, which is complete but long.
+- **"As of" answers do not add the jumbo sibling** (see above), so a judge grading against a reference
+  that mentions both sizes for a past date would give partial credit.
+- **Extraction artefacts** remain in a few long value cells (the May HELOC intro cell reads as a
+  sentence with a footnote digit), and a few blog tables get junk identity cards; they hold no rate
+  figures that compete with official ones.
+- **Calendar year near a vehicle word:** a past calendar year near a vehicle word, e.g. auto loan
+  rate in 2025, is read as a model year.
 - **Branch hours** exist only inside press releases about individual branches, so general hours are
   summarised from those; a branch with no published hours is refused rather than guessed.
+- The practice item "Get me the rate for the certificate of accounts" has no `must_include`, so it
+  scores 0 for any answer under the kit's scorer (it lists the personal certificate rates).
 
-### Deferred to the follow-up redesign
-
-Automated review raised several findings about how the system decides that two table rows on
-different pages are the *same product* (a copy that the truth rules should compare) or *different
-products* (separate facts). Several fix rounds improved the real answers but each round also exposed
-new edge cases, so the remaining ones are deferred to a redesign. In that redesign, product identity
-will be decided once at load time against a fixed product catalogue, and every fact will carry a
-valid-from / valid-to timeline. Known gaps until then, all reproduced only on small synthetic sites
-unless noted:
-
-- A stale copy whose label words differ a lot from the official row's can still compete with it
-  as a separate fact instead of being recognised as an older copy.
-- Two official rate sheets that name the same product slightly differently may be listed as two
-  products, and a differently named sibling product (for example a hypothetical "Student"
-  certificate) can still surface in a plain question's answer.
-- List and catalogue answers decide which rows belong to the asked product with word-overlap rules,
-  so an unusual wording can pull in or leave out a sibling product.
-- For IRA, Roth and Traditional questions the system now refuses when no IRA row covers the term
-  (for example the site lists no 12-month IRA certificate); other product families have no such guard.
-- On the May-August rate sheets that carry tab labels, a tab label can lift another product's table:
-  an as-of Share Savings question can answer the certificate specials that sit under a
-  "Term-Share Certificate Rates" tab. Some money market products on those sheets are named only by
-  their tab, so as-of money market answers depend on the tab text (reproduced on the real snapshots).
-  Answers for the latest snapshot are unaffected because the September pages have no tabs.
-
-## Optional AI steps (planned, measured follow-up)
+## Optional AI steps (later stages)
 
 `truthledger/hooks.py` defines where an LLM can help without ever judging which number is true:
-`extra_rows(page)` turns messy prose into extra ledger rows at ingest (they go through the same truth
-rules), `rewrite_question(question)` restates oddly worded questions, and `phrase(question, text)`
-rewords the final answer, which is only kept if it states exactly the same figures as the rule-built
-answer. No implementation ships yet because no API key was available to measure one; each step will
-be kept only if it raises the score on both the public and the held-out sets, and graders would
-switch it on with their own key (named in this file when added).
+`rewrite_question(question)` restates oddly worded questions onto the identity fields,
+`extra_rows(page)` turns messy prose or tables into extra ledger rows at ingest (they get identity
+cards and go through the same truth rules), and `phrase(question, text)` rewords the final answer,
+which is only kept if it states exactly the same figures as the rule-built answer. Nothing ships yet;
+each step will be kept only if it raises the score on the public and the held-out sets, using the
+graders' Anthropic key when one is set and falling back to these rules when it is not.
 
 ## Data handling
 
 The snapshots and the assignment PDF are not committed (`snapshots/0*/` and `snapshots_zip/` are
-git-ignored). The held-out question files contain only questions and the short values they check.
+git-ignored). The held-out question files and the conflicts guess list contain only questions and the
+short values they check.

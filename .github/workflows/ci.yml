@@ -1,0 +1,26 @@
+# Unit tests and lint on Python 3.11. The website snapshots are not in the repository, so the
+# eval sets are run locally (see README.md), not here.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -r requirements.txt ruff==0.17.1
+      - name: Lint
+        run: ruff check .
+      - name: Unit tests
+        run: python -m unittest discover -s solution/tests -v

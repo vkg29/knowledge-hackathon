@@ -5,8 +5,10 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from .qualifiers import Qualifiers, parse_question_qualifiers
-from .text import MONTHS, date_asked, norm
+from .catalogue import product_words, question_family
+from .identity import KINDS
+from .qualifiers import PAST_INTRO, Qualifiers, parse_question_qualifiers, strip_model_years
+from .text import MONTHS, date_asked, norm, relative_date, strip_dates
 from .vocab import GENERIC, STOPWORDS, content_tokens, expand, tokens
 
 _RATE_WORDS = re.compile(r"\b(rates?|apys?|aprs?|yields?|dividends?|interest|percent)\b|%", re.I)
@@ -19,7 +21,28 @@ _LIST_WORDS = re.compile(r"\b(what|which)\b.*\b(do you|does dupaco)\s+(offer|hav
 _SUPER_MAX = re.compile(r"\b(highest|best|top|maximum|max|most)\b", re.I)
 _SUPER_MIN = re.compile(r"\b(lowest|cheapest|minimum|least)\b", re.I)
 _URL_WORDS = re.compile(r"\b(link|url|web ?page|website address|web address)\b", re.I)
-_PAST = re.compile(r"\b(was|were|used to|back in|as of|previously|before)\b", re.I)
+_PAST = re.compile(r"\b(was|were|used to|back in|as of|previously|before|did|had|paid)\b|\bago\b|\blast (month|week|quarter)\b|"
+                   r"\bthis past\b|\bearlier this year\b", re.I)
+# "What changed since May?", "what did it pay before it went up?", "when did it last change?",
+# "is it still offered?": questions answered from a fact's history, not one snapshot. "Over the past
+# year" / "in the last year" is the trailing twelve months, not the previous calendar year.
+_TRAILING_YEAR = re.compile(r"\b(?:the|this) (?:past|last) year\b", re.I)
+_CHANGE = re.compile(r"\b(changed|went (up|down)|gone (up|down)|increased|decreased|raised|rose|risen|dropped|lowered|fell|moved|"
+                     r"history|over time|trend(s|ed|ing)?|happen(ed|ing)?)\b|" + _TRAILING_YEAR.pattern, re.I)
+# Verbs that also compare products ("lower than the jumbo", "does it go up with a bigger balance",
+# "how does it change with the term"): a change only in a question about time.
+_SHIFT = re.compile(r"\b(chang(e|es|ing)|go(es|ing)? (up|down)|increas(e|es|ing)|decreas(e|es|ing)|rais(e|es|ing)|"
+                    r"drop(s|ping)?|lower(s|ing)?|higher|cut(s|ting)?|mov(e|es|ing)|compar(e|ed|es|ing)|differ(s|ent|ence)?)\b",
+                    re.I)
+_TIME = re.compile(r"\b(did|was|were|been|since|ago|used to|last|recent(ly)?|previous(ly)?|earlier)\b|\b(19|20)\d\d\b|"
+                   r"\b(january|february|march|april|june|july|august|september|october|november|december)\b|"
+                   r"\b(in|since|than|from|before|after|until|by|to|of|during|past) may\b|" + _TRAILING_YEAR.pattern, re.I)
+_BEFORE = re.compile(r"\bbefore (it|its|the|this|that)\b[^.?,;]{0,30}?\b(chang|increas|decreas|rais|rose|ris|hike|cut|drop|lower|"
+                     r"fell|reduc|updat|went|gone|go(es)? (up|down))|\bprevious(ly)?\b|\bprior\b|\bused to\b|\bold (rate|apy|apr)\b", re.I)
+_WHEN_CHANGED = re.compile(r"^\s*when\b.*\b(chang|updat|increas|decreas|rais|lower|go up|went up|go down|went down)", re.I)
+_STILL = re.compile(r"\bstill (offered|available|open|around|running|listed|being offered|offering|have|has|exist)|"
+                    r"\b(no longer|discontinued|stopped offering|go away|went away|ended)\b", re.I)
+_SINCE = re.compile(r"\b(?:since|after|from|between)\b", re.I)
 
 
 @dataclass
@@ -41,12 +64,21 @@ class Question:
     wants_number: bool       # "how many", "how much", "what number"
     answer_type: Optional[str]  # "address" | "phone" | "date" | None: the shape the answer must have
     wants_action: bool       # "how do I ...", "where can I ...": a link to act on helps
+    change: Optional[str] = None      # "history" | "before" | "when" | "still" | None (see _CHANGE)
+    since: Optional[str] = None       # start of the period a change question asks about
+    until: Optional[str] = None       # its end ("between May and September 2026")
+    family: Optional[str] = None      # catalogue family the question names (catalogue.py)
+    product: frozenset = frozenset()  # distinctive product name words ('share', 'bright', 'special')
+    kinds: frozenset = frozenset()    # account kinds / variants asked for (identity.KINDS)
+    year: Optional[int] = None        # calendar year a statement must be about ('in 2024', 'last year')
 
 
-def parse(question: str) -> Question:
+def parse(question: str, today: Optional[str] = None) -> Question:
+    """`today` is the newest crawl's date; relative dates ('last month', 'two months ago') count back from it."""
     q = question.strip()
     low = norm(q)
     plain = re.sub(r"\bcredit unions?\b", " ", q, flags=re.I)   # "the credit union" means Dupaco itself
+    plain = PAST_INTRO.sub(" ", plain)   # "after the intro period" names what is *not* asked for
     toks = content_tokens(plain)
     metric = None
     if re.search(r"\bapys?\b|annual percentage yield", low):
@@ -71,15 +103,26 @@ def parse(question: str) -> Question:
             hours = "drive-up"
         else:
             hours = "any"
-    as_of_hint = date_asked(q) if _PAST.search(low) else None
+    change, since, until = _change(q, low, today)
+    as_of_hint = date_asked(q, today) if _PAST.search(low) and not change else None
     dateless = re.sub(r"\b(19|20)\d\d\b|\b(january|february|march|april|may|june|july|august|september|october|"
-                      r"november|december)\b|\btoday\b", " ", plain, flags=re.I)
+                      r"november|december)\b(\s+\d{1,2}(st|nd|rd|th)\b)?|\btoday\b", " ", plain, flags=re.I)
     key_words = [t for t in content_tokens(dateless) if t not in GENERIC]
+    family = question_family(plain)
+    quals = parse_question_qualifiers(q)
+    kinds = frozenset(v for v in quals.variants if v in KINDS)
+    if "traditional" in kinds and not ({"ira", "roth"} & kinds or re.search(r"\bretirement\b", low)):
+        kinds -= {"traditional"}   # 'traditional 30 year fixed home loan' is not an IRA question
     return Question(
+        year=_year_asked(q, today, quals),
+        change=change, since=since, until=until,
+        family=family,
+        product=product_words(dateless, family),
+        kinds=kinds,
         raw=q,
         words=_boost(expand(toks), _names(q)),
         key_words=key_words,
-        quals=parse_question_qualifiers(q),
+        quals=quals,
         metric=metric,
         rate_intent=rate_intent,
         rate_implied=rate_implied,
@@ -101,6 +144,57 @@ _NOT_NAMES = {"dupaco", "i", "visa", "apy", "apr", "apys", "aprs", "ira", "iras"
               "what", "when", "where", "who", "how", "is", "are", "can", "do", "does", "the", "a", "my", "mobile",
               "shine", "online", "credit", "union", "monday", "tuesday", "wednesday", "thursday", "friday",
               "saturday", "sunday"} | set(MONTHS)
+
+
+_REL_YEAR = {"last year": -1, "previous year": -1, "this year": 0, "the year before last": -2}
+
+
+def _year_asked(q: str, today: Optional[str], quals: Qualifiers) -> Optional[int]:
+    """'How many ... in 2024?' -> 2024; 'last year' -> the year before the newest crawl's ('over the
+    past year' is a period, not a calendar year). Not a model year, not a year that is part of a full date."""
+    low = _TRAILING_YEAR.sub(" ", q.lower())
+    for phrase, delta in _REL_YEAR.items():
+        if phrase in low and today:
+            return int(today[:4]) + delta
+    m = re.search(r"\b(?:in|during|for|of)\s+((?:19|20)\d\d)\b(?!\s*model)", strip_dates(q))
+    if m and not (quals.years and quals.years[0] == int(m.group(1))):
+        return int(m.group(1))
+    return None
+
+
+def _change(q: str, low: str, today: Optional[str]) -> tuple:
+    """(mode, since, until) for a question about how a fact changed over time."""
+    dateless = strip_dates(low)
+    timed = dateless != low or bool(_TIME.search(re.sub(r"\$\s?\d[\d,]*(\.\d+)?", " ", strip_model_years(dateless))))
+    if _WHEN_CHANGED.search(low) and timed:
+        mode = "when"
+    elif _BEFORE.search(low) and re.search(r"\b(pay|paid|earn|earned|rate|apy|apr|charge|charged|cost)\b", low):
+        mode = "before"
+    elif (_CHANGE.search(low) or (timed and _SHIFT.search(low))) and not re.search(
+            r"\b(change|update)s? (my|your|the) (address|name|phone|email|contact|password|pin)\b", low):
+        mode = "history"
+    elif _STILL.search(low):
+        mode = "still"
+    else:
+        return None, None, None
+    since = until = None
+    m = _SINCE.search(q)
+    if m:
+        tail = q[m.start():]
+        parts = re.split(r"\b(?:and|to|until|through)\b", tail, maxsplit=1)
+        since = _period_start(parts[0], today)
+        if len(parts) > 1:
+            until = date_asked(parts[1], today)
+            if since and until and since[:4] != until[:4] and not re.search(r"\b(19|20)\d\d\b", parts[0]):
+                since = until[:4] + since[4:]   # 'between May and September 2026': May of 2026
+    elif today and _TRAILING_YEAR.search(q):
+        since = relative_date("a year ago", today)
+    return mode, since, until
+
+
+def _period_start(text: str, today: Optional[str]) -> Optional[str]:
+    """'since June 2026' -> the end of June: the site as it stood in June is the baseline."""
+    return date_asked(text, today)
 
 
 def _answer_type(low: str) -> Optional[str]:

@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .catalogue import family_of
 from .qualifiers import Qualifiers, parse_row_qualifiers
 from .text import clean_inline, effective_date, has_digit, links, percents, strip_footnote
 
@@ -52,7 +53,9 @@ class RawRow:
     label: str = ""               # table row label as printed ('17 Month Fixed Certificate Special')
     caption: str = ""             # table caption ('Special Certificates')
     qual_text: str = ""           # qualifier cells as printed ('60 Months')
-    block: int = -1               # index of the source line block (sentences of one paragraph share it)
+    block: int = -1               # index of the source block (sentences of one paragraph, rows of one table share it)
+    tab: str = ""                 # in-page tab label the table sits under ('Term-Share Certificate Rates')
+    line: bool = False            # a one-row table read from a "Label: value" line
 
 
 @dataclass
@@ -123,11 +126,16 @@ def _metric_name(header: str, cell: str) -> Optional[str]:
     return None
 
 
-def _table_rows(block: _Block, caption: list[str], section: str, effective: Optional[str]) -> list[RawRow]:
+def _table_rows(block: _Block, caption: list[str], section: str, effective: Optional[str], index: int = -1,
+                tab: str = "") -> list[RawRow]:
     rows = block.rows
     if len(rows) < 2:
         return []
     header, body = rows[0], rows[1:]
+    # A first header cell that names a product ('| Business Platinum Visa | APR |') is the table's own caption.
+    head0 = strip_footnote(header[0]).strip(" *\\") if header else ""
+    if head0 and family_of(head0) and not _QUAL_HEADERS.fullmatch(head0) and head0 not in caption:
+        caption = caption + [head0]
     out = []
     for cells in body:
         cells = [strip_footnote(c) for c in cells]
@@ -153,7 +161,7 @@ def _table_rows(block: _Block, caption: list[str], section: str, effective: Opti
         vtext = ", ".join(f"{v} {m}" for m, v in values if m not in ("payment example", "points"))
         text = f"{label}{' (' + qual_text + ')' if qual_text else ''}: {vtext}"
         out.append(RawRow("table", subject, text, section, tuple(values), quals, effective,
-                          label=label, caption=caption[-1] if caption else "", qual_text=qual_text))
+                          label=label, caption=caption[-1] if caption else "", qual_text=qual_text, block=index, tab=tab))
     return out
 
 
@@ -221,7 +229,7 @@ def _table_effective(blocks: list[_Block], idx: int) -> Optional[str]:
 _LABEL_VALUE = re.compile(r"^(?P<label>[A-Za-z0-9][^:]{2,80}):\s*(?P<value>.{1,90})$")
 
 
-def _label_value_row(text: str, heads: list, section: str) -> Optional[RawRow]:
+def _label_value_row(text: str, heads: list, section: str, index: int = -1) -> Optional[RawRow]:
     """A 'Label: value' line that states a rate or fee ('6-month certificate APY: 3.50%') is a
     one-row table: it becomes a ledger row with the same qualifiers and metrics as table rows. A
     dollar amount is a fact row only when the line says what it is (a fee, a minimum to open)."""
@@ -242,7 +250,7 @@ def _label_value_row(text: str, heads: list, section: str) -> Optional[RawRow]:
     caption = heads[-1][1] if heads else ""
     quals = parse_row_qualifiers(f"{label} {rest}", [], [caption] if caption else [])
     return RawRow("table", " > ".join(x for x in (caption, label) if x), text, section, ((metric, figure),), quals,
-                  effective_date(text), label=label, caption=caption, qual_text=rest[:60])
+                  effective_date(text), label=label, caption=caption, qual_text=rest[:60], block=index, line=True)
 
 
 _SPACE_RE = re.compile(r"\s+")
@@ -290,7 +298,7 @@ def extract_rows(markdown: str) -> list[RawRow]:
             caption = _caption(blocks, i)
             if tab and tab not in caption:
                 caption = [tab] + caption
-            out.extend(_table_rows(b, caption, section, _table_effective(blocks, i)))
+            out.extend(_table_rows(b, caption, section, _table_effective(blocks, i), index=i, tab=tab))
             i += 1
             continue
         # Branch hours: a "Lobby" / "Drive-up" label followed by day: time lines.
@@ -325,7 +333,7 @@ def extract_rows(markdown: str) -> list[RawRow]:
             i += 1
             continue
         if b.kind == "line":
-            fact = _label_value_row(b.text, heads, section)
+            fact = _label_value_row(b.text, heads, section, index=i)
             if fact:
                 out.append(fact)
             lk = tuple(links(b.raw))

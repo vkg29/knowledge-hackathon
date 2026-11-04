@@ -14,9 +14,11 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
 from .extract import RawRow, extract_rows
+from .identity import FactKey, assign
 from .pages import AUTHORITY, canonical_url, page_kind, published_date
 from .qualifiers import Qualifiers
-from .rules import ends_on, page_has_ended, product_names
+from .rules import ends_on, page_has_ended
+from .timeline import Timeline
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,8 @@ class Row:
     qual_text: str = ""
     block: int = -1
     pos: int = 0                 # position among the page version's rows
+    tab: str = ""
+    line: bool = False           # read from a "Label: value" line rather than a table
 
     @property
     def authority(self) -> int:
@@ -81,7 +85,8 @@ class Ledger:
         self.rows_by_version: dict[int, list[Row]] = {}
         self._latest: dict[str, tuple[str, int]] = {}   # canonical url -> (content hash, vid) of its newest version
         self._views: dict[int, list[Row]] = {}
-        self._names: Optional[dict] = None
+        self._ids: Optional[dict] = None
+        self._timeline: Optional[Timeline] = None
 
     # ---- loading -------------------------------------------------------------------------
     def add_snapshot(self, snapshot_id: str, taken_on: str, pages: Iterable) -> SnapshotInfo:
@@ -100,7 +105,8 @@ class Ledger:
             info.pages[url] = vid
         self.snapshots.append(info)
         self._views.clear()
-        self._names = None
+        self._ids = None
+        self._timeline = None
         return info
 
     def _add_version(self, url: str, page, snap_index: int) -> int:
@@ -121,7 +127,7 @@ class Ledger:
     def _row(self, raw: RawRow, v: PageVersion) -> Row:
         row = Row(len(self.rows), raw.kind, raw.subject, raw.text, raw.section, raw.values, raw.quals,
                   raw.effective, raw.links, v, ends_on(raw.text), raw.label, raw.caption, raw.qual_text,
-                  raw.block)
+                  raw.block, tab=raw.tab, line=raw.line)
         self.rows.append(row)
         return row
 
@@ -150,11 +156,17 @@ class Ledger:
             self._views[snap_index] = rows
         return self._views[snap_index]
 
-    def product_names(self) -> dict:
-        """rid -> product name of every table row (see rules.product_names), the same for every question."""
-        if self._names is None:
-            self._names = product_names([r for r in self.rows if r.kind == "table"])
-        return self._names
+    def identities(self) -> dict[int, FactKey]:
+        """rid -> fact identity of every table row (see identity.py), fixed at load time."""
+        if self._ids is None:
+            self._ids = assign(self.rows)
+        return self._ids
+
+    def timeline(self) -> Timeline:
+        """Per-identity winners and spans over every crawl (see timeline.py)."""
+        if self._timeline is None:
+            self._timeline = Timeline(self, self.identities())
+        return self._timeline
 
     def in_crawl(self, row: Row, snap_index: int) -> bool:
         """Was this exact page version part of that snapshot's crawl (not carried forward)?"""

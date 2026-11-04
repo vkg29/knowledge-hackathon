@@ -10,18 +10,16 @@ In priority order:
 3. Recency among equals: the date printed on the page wins ("Rates are effective as of ...", or
    a press release's byline date), then the crawl that last saw the page.
 
-Qualifiers are handled before these rules run: rows for different terms, tiers, model years,
-loan amounts or metrics are different facts and never compete, and so are products whose names
-differ by a word that is not generic ("Student" certificates); see `same_fact`.
+Identity is settled before these rules run (`identity.py`): rows for different products, terms,
+tiers, model-year slots or account kinds are different facts and never compete, and the metrics
+of one row (rate vs APY) are compared metric by metric.
 """
 from __future__ import annotations
 
 import re
-from collections import defaultdict
 from typing import Optional
 
 from .text import find_dates
-from .vocab import STOPWORDS, stem, tokens
 
 _ENDED_PAGE = re.compile(r"this offer has ended|offer has expired|promotion has ended|this offer is no longer", re.I)
 _ENDS_ON = re.compile(r"\b(?:offer|promotion|special|rate|sale)\b[^.]{0,40}?\b(?:ended|expired|ends|expires|valid (?:through|until))\b", re.I)
@@ -51,71 +49,6 @@ def is_live(row, on_date: str) -> bool:
 def truth_key(row) -> tuple:
     """Sort key; the highest key is the row believed true."""
     return (row.authority, row.dated, row.page.fetched_at, -row.rid)
-
-
-_TIER_WORDS = frozenset(stem(w) for w in "model year years month months mo mos yr yrs or less and older type program".split())
-_GENERIC_PRODUCT_WORDS = _TIER_WORDS | frozenset(stem(w) for w in (
-    "rate rates loan loans account accounts certificate certificates regular term share fixed standard conventional").split())
-
-
-def core_words(row) -> Optional[frozenset]:
-    """The words that tell one table row's product from another's (its caption and label, minus tier
-    and generic product words): 'Regular Certificates - 12 Month' has none, a student certificate
-    has 'student'. None when the caption and label name no product at all ('$100,000+')."""
-    words = [t for t in tokens(f"{row.caption} {row.label}") if t.isalpha() and t not in STOPWORDS and t not in _TIER_WORDS]
-    if not words:
-        return None
-    return frozenset(t for t in words if t not in _GENERIC_PRODUCT_WORDS)
-
-
-def product_names(rows) -> dict[int, Optional[frozenset]]:
-    """rid -> the product a row names, over every table row in the ledger. A shorter name joins the
-    one fuller name of the same term and variant that contains it ('Auto Loans' is 'Auto &
-    Motorcycle Loans'); a plain name (no core words) or one that fits several fuller names stays its
-    own product."""
-    names: dict[tuple, set] = defaultdict(set)
-    for r in rows:
-        if core_words(r) is not None:
-            names[(r.quals.terms, r.quals.variants)].add(core_words(r))
-    out = {}
-    for r in rows:
-        own = core_words(r)
-        if own:
-            known = names[(r.quals.terms, r.quals.variants)]
-            fuller = [n for n in known if own < n and not any(n < m for m in known)]
-            if len(fuller) == 1:
-                own = fuller[0]
-        out[r.rid] = own
-    return out
-
-
-def same_fact(a, b, names: dict) -> bool:
-    """Two table rows state the same fact: same term, variant, amount tier and product name,
-    overlapping model years, and at least one metric both state."""
-    if names[a.rid] is None or names[a.rid] != names[b.rid]:
-        return False
-    if (a.quals.terms, a.quals.variants, a.quals.amount) != (b.quals.terms, b.quals.variants, b.quals.amount):
-        return False
-    ya, yb = a.quals.years, b.quals.years
-    if (ya is None) != (yb is None) or (ya and not (ya[0] <= yb[1] and yb[0] <= ya[1])):
-        return False
-    return bool({m for m, _ in a.values} & {m for m, _ in b.values})
-
-
-def fact_roots(rows, names: dict) -> dict:
-    """rid -> the truest row stating the same fact. Rows are taken truest first and each joins the
-    truest root it states the same fact as, so a stale row whose model years span two current tiers
-    joins one of them without merging the two."""
-    roots: dict[tuple, list] = defaultdict(list)
-    out = {}
-    for r in sorted(rows, key=truth_key, reverse=True):
-        key = (r.quals.terms, r.quals.variants, r.quals.amount, names[r.rid])
-        root = next((x for x in roots[key] if same_fact(x, r, names)), None)
-        if root is None:
-            roots[key].append(r)
-            root = r
-        out[r.rid] = root
-    return out
 
 
 def explain(winner, loser, current: bool = True) -> str:

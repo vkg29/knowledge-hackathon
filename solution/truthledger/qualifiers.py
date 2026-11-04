@@ -87,6 +87,10 @@ def parse_amount_range(text: str) -> Optional[tuple]:
     t = text.replace("\u2013", "-").replace("\u2014", "-")
     t = _SCALED.sub(lambda m: "$" + format(float(m.group(1).replace(",", "")) * _SCALE[m.group(2).lower()], ".2f"), t)
     vals = money_values(t)
+    if len(vals) == 1:   # '$10,000-24,999': the upper bound is printed without its dollar sign
+        m = re.search(r"\$\s?[\d,]+(?:\.\d+)?\s*-\s*(\d{1,3}(?:,\d{3})+|\d{3,})(?:\.(\d+))?\b", t)
+        if m:
+            vals.append(float(m.group(1).replace(",", "") + ("." + m.group(2) if m.group(2) else "")))
     if not vals:
         bare = re.findall(r"\b(\d{1,3}(?:,\d{3})+|\d{4,})\b(?!\s*model)", t)
         vals = [float(v.replace(",", "")) for v in bare if not re.fullmatch(r"(19|20)\d\d", v)]
@@ -130,18 +134,33 @@ def parse_row_qualifiers(label: str, qual_cells: list[tuple[str, str]], caption:
     return Qualifiers(parse_terms(text), years, amount, variants)
 
 
+def _is_model_year(m: re.Match) -> bool:
+    window = m.string[max(0, m.start() - 30): m.end() + 30].lower()
+    return bool(re.search(r"\b(models?|vehicles?|cars?|trucks?|autos?|automobiles?|motorcycles?)\b", window))
+
+
+def strip_model_years(text: str) -> str:
+    """The text with every model year ('a 2025 car', '2023 model-year vehicle') blanked out."""
+    return _YEAR_SINGLE.sub(lambda m: " " if _is_model_year(m) else m.group(0), text)
+
+
 def parse_question_qualifiers(question: str) -> Qualifiers:
     q = strip_dates(question)
     years = None
     for m in _YEAR_SINGLE.finditer(q):
-        y = int(m.group(1))
-        window = q[max(0, m.start() - 30): m.end() + 30].lower()
-        if re.search(r"model|vehicle|car|truck|auto|motorcycle", window):
-            years = (y, y)
+        if _is_model_year(m):
+            years = (int(m.group(1)), int(m.group(1)))
     amount = None
     if "$" in q or re.search(r"\d{1,3},\d{3}", q):
         amount = parse_amount_range(re.sub(r"\b(19|20)\d\d\b", "", q))
-    return Qualifiers(parse_terms(question), years, amount, parse_variants(question))
+    variants = parse_variants(question)
+    if "intro" in variants and PAST_INTRO.search(question):
+        variants -= {"intro"}   # "after the intro period" asks for the ongoing rate
+    return Qualifiers(parse_terms(question), years, amount, variants)
+
+
+PAST_INTRO = re.compile(r"\b(after|once|when|beyond|past|following)\b[^.?]{0,20}\b(intro|introductory|promotional)\b[^.?]{0,25}"
+                         r"\b(period|rate|apr|offer|ends?|expires?|is over)\b|\b(intro|introductory)\b[^.?]{0,25}\b(ends|expires|is over)\b", re.I)
 
 
 def terms_match(q: frozenset, row: frozenset) -> Optional[bool]:

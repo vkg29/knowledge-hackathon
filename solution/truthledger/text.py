@@ -87,16 +87,65 @@ def month_year_end(s: str) -> Optional[str]:
 _MID_MONTH = re.compile(rf"\bmid[-\s]?({_MONTH_ALT})\.?,?\s+(\d{{4}})\b", re.I)
 
 
-def date_asked(s: str) -> Optional[str]:
+def date_asked(s: str, today: Optional[str] = None) -> Optional[str]:
     """The date a question asks about: a full date ('May 15, 2026', '6/1/2026'), else the middle
-    of a month for 'mid-May 2026', else the last day of a named month."""
+    of a month for 'mid-May 2026', else the last day of a named month, else (with `today`, the
+    newest crawl's date) a relative date: 'last month', 'two months ago', 'this past May'."""
     dates = find_dates(s)
     if dates:
         return dates[0]
     m = _MID_MONTH.search(s)
     if m:
         return _mk(int(m.group(2)), MONTHS[m.group(1).lower()], 15)
-    return month_year_end(s)
+    return month_year_end(s) or (relative_date(s, today) if today else None)
+
+
+_COUNT_WORDS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+                "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "a couple of": 2, "a few": 3, "several": 3}
+_AGO = re.compile(r"\b(\d+|a couple of|a few|several|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+"
+                  r"(day|week|month|year)s?\s+ago\b", re.I)
+_LAST_UNIT = re.compile(r"\b(last|previous|past)\s+(week|month|quarter)\b", re.I)
+_BARE_MONTH = re.compile(rf"\b(?:in|this past|last|back in|during|earlier this year,? in|as of|since|after|before|from|between)\s+"
+                         rf"(?:early\s+|mid[-\s]?|late\s+)?({_MONTH_ALT})\b(?![\s,]*\d{{4}})", re.I)
+
+
+def _shift_months(d: date, n: int) -> date:
+    y, m = divmod(d.year * 12 + d.month - 1 - n, 12)
+    m += 1
+    last = (date(y + (m == 12), m % 12 + 1, 1).toordinal() - 1)
+    return date(y, m, min(d.day, date.fromordinal(last).day))
+
+
+def _month_end(y: int, m: int) -> date:
+    return date.fromordinal(date(y + (m == 12), m % 12 + 1, 1).toordinal() - 1)
+
+
+def relative_date(s: str, today: str) -> Optional[str]:
+    """A date written relative to `today`: 'two months ago', 'last month' (its last day), 'this past
+    May' or 'in May' without a year (the latest May on or before today, its last day)."""
+    now = date.fromisoformat(today[:10])
+    m = _AGO.search(s)
+    if m:
+        n = int(m.group(1)) if m.group(1).isdigit() else _COUNT_WORDS[m.group(1).lower()]
+        unit = m.group(2).lower()
+        if unit == "day":
+            return date.fromordinal(now.toordinal() - n).isoformat()
+        if unit == "week":
+            return date.fromordinal(now.toordinal() - 7 * n).isoformat()
+        return _shift_months(now, 12 * n if unit == "year" else n).isoformat()
+    m = _LAST_UNIT.search(s)
+    if m:
+        unit = m.group(2).lower()
+        if unit == "week":
+            return date.fromordinal(now.toordinal() - 7).isoformat()
+        back = _shift_months(now, 3 if unit == "quarter" else 1)
+        return _month_end(back.year, back.month).isoformat()
+    m = _BARE_MONTH.search(s)
+    if m:
+        mo = MONTHS[m.group(1).lower()]
+        y = now.year if mo <= now.month else now.year - 1
+        return _month_end(y, mo).isoformat()
+    return None
 
 
 def strip_dates(s: str) -> str:
@@ -139,3 +188,16 @@ def strip_footnote(cell: str) -> str:
 
 def has_digit(s: str) -> bool:
     return any(ch.isdigit() for ch in s)
+
+
+_MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+                "November", "December"]
+
+
+def long_date(iso: str) -> str:
+    """'2026-09-01' -> 'September 1, 2026'."""
+    try:
+        d = date.fromisoformat(iso[:10])
+    except ValueError:
+        return iso
+    return f"{_MONTH_NAMES[d.month - 1]} {d.day}, {d.year}"
