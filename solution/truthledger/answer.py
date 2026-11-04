@@ -110,12 +110,11 @@ class Answerer:
         return frozenset(with_prefixes(tokens(text)))
 
     def _names_product(self, q: Question, row: Row, best: Row) -> bool:
-        """Does the row's own caption or label name the product asked for: one of the question's
+        """Does the row's own caption or label name the product asked for: every one of the question's
         product words (not an asked variant), or failing that a product word of the best row?"""
-        asked = {t for v in q.quals.variants for t in tokens(v)}
-        words = [w for w in q.key_words if not w.isdigit() and w not in asked]
+        asked = _asked_variant_tokens(q)
         own = self._own_terms(row)
-        return not words or any(w in own for w in words) or bool(_family_words(row, asked) & _family_words(best, asked))
+        return all(w in own for w in _product_words(q)) or bool(_family_words(row, asked) & _family_words(best, asked))
 
     def _page_terms(self, row: Row) -> frozenset:
         key = row.page.vid
@@ -172,20 +171,23 @@ class Answerer:
         facts = sorted(((relevance[r.rid], r) for _, r in cands if truest[r.rid] is r), key=lambda c: (-c[0], c[1].rid))
         top = facts[0][0]
         band = [c for c in facts if c[0] >= (0.6 if listing else 0.75) * top]
-        if listing:   # distinct facts: an official page's most relevant plain product (not a variant) picks the page
-            pool = [c for c in band if c[1].quals.variants <= q.quals.variants] or band
+        if listing:   # distinct facts: an official page's most relevant plain product (not a variant) picks the page,
+            # preferring one that names the question's last product word ("share certificate" is a certificate)
+            head = _product_words(q)[-1:]
+            pool = ([c for c in facts if c[1].quals.variants <= q.quals.variants and all(w in self._own_terms(c[1]) for w in head)]
+                    or [c for c in band if c[1].quals.variants <= q.quals.variants] or band)
             best = max(pool, key=lambda c: (AUTHORITY[c[1].page.kind], c[0], truth_key(c[1])))[1]
         else:
             best = max(band, key=lambda c: (truth_key(c[1]), c[0]))[1]
         if not listing:
             rows = [r for _, r in band if _same_table(r, best)]
-        elif _catalogue(q):
-            rows = [r for _, r in band if r is best or self._names_product(q, r, best)]
         else:   # everything the truest page lists for this product family, by the rows' own words
             plain = best.quals.variants <= q.quals.variants
             rows = list({truest[r.rid].rid: truest[r.rid] for _, r in cands
                          if r is best or (r.page.vid == best.page.vid and (not plain or r.quals.variants <= q.quals.variants)
                                           and self._names_product(q, r, best))}.values())
+            if _catalogue(q):   # plus every other product in the band that names what was asked
+                rows += [r for _, r in band if r not in rows and self._names_product(q, r, best)]
         rows = _dedupe(sorted(rows, key=lambda r: (r.page.vid != best.page.vid, r.page.url, r.pos)))
         if q.superlative:
             rows = [_extreme(rows, q)]
@@ -440,6 +442,16 @@ def _wanted_metrics(q: Question) -> set:
     if q.metric and q.metric != "rate":
         return {q.metric}
     return {"rate", "APR", "APY", "dividend rate", "fee"}   # a "minimum to open" is shown only when asked
+
+
+def _asked_variant_tokens(q: Question) -> set:
+    return {t for v in q.quals.variants for t in tokens(v)}
+
+
+def _product_words(q: Question) -> list:
+    """The question's words that name the product, in order (not numbers or asked variants)."""
+    asked = _asked_variant_tokens(q)
+    return [w for w in q.key_words if not w.isdigit() and w not in asked]
 
 
 def _family_words(r: Row, asked: set) -> set:

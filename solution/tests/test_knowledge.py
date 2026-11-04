@@ -289,6 +289,70 @@ Regular Business Certificates
 Rates are effective as of 09/24/2026.
 """
 
+CARD_RATES = """# Rates
+
+Credit Cards
+
+Platinum Visa
+
+| Card | APR |
+| --- | --- |
+| Platinum Visa Rate | 12.50% - 19.50% |
+| Introductory Balance Transfer Rate | 2.90% |
+
+Rewards Visa
+
+| Card | APR |
+| --- | --- |
+| Standard | 15.50% - 21.00% |
+
+Rates are effective as of 01/02/2026.
+"""
+
+BUSINESS_CARDS = """# Business credit cards
+
+Business Credit Cards
+
+Business Platinum Visa
+
+| Card | APR |
+| --- | --- |
+| Business Platinum Visa | 15.50% |
+
+Rates are effective as of 01/01/2026.
+"""
+
+SHARE_AND_CERTIFICATES = """# Rates
+
+Certificates
+
+Special Certificates
+
+| Certificate | Dividend Rate | Annual Percentage Yield (APY) |
+| --- | --- | --- |
+| 17 Month Fixed Certificate Special | 4.06% | 4.10% |
+
+Rates are effective as of 09/01/2026.
+
+Regular Certificates
+
+| Certificate | Dividend Rate | Annual Percentage Yield (APY) |
+| --- | --- | --- |
+| 12 Month | 3.37% | 3.40% |
+
+Rates are effective as of 09/01/2026.
+
+Savings Accounts
+
+Share Savings
+
+| Account Type | Balance Tier | Dividend Rate | Annual Percentage Yield (APY) |
+| --- | --- | --- | --- |
+| Share Savings | $25,000+ | 0.20% | 0.20% |
+
+Rates are effective as of 09/01/2026.
+"""
+
 STUDENT_TABLE = """# Student Certificates
 
 Student Certificates
@@ -491,6 +555,19 @@ class Authority(unittest.TestCase):
         catalogue = ks.answer("Which certificates do you offer and what are their APYs?")
         self.assertIn("Regular Certificates - 12 Month: 3.40% APY", catalogue.text)
         self.assertNotIn("Savings", catalogue.text)
+
+    def test_share_certificate_list_leaves_out_share_savings(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/rates": SHARE_AND_CERTIFICATES}))
+        for q in ("What are the share certificate rates?", "Get me the rates for share certificates"):
+            ans = ks.answer(q)
+            self.assertEqual(numbers(ans.text), ["4.06%", "4.10%", "3.37%", "3.40%"], q)
+            self.assertNotIn("Savings", ans.text, q)
+
+    def test_card_catalogue_lists_every_card_on_the_rate_sheet(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/rates": CARD_RATES, "/business/credit-cards": BUSINESS_CARDS}))
+        ans = ks.answer("What credit cards do you offer and what are their APRs?")
+        self.assertIn("Platinum Visa Rate: 12.50% - 19.50% APR", ans.text)
+        self.assertIn("Rewards Visa - Standard: 15.50% - 21.00% APR", ans.text)
 
     def test_business_certificate_list_comes_from_the_business_certificates(self):
         ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/rates": PERSONAL_RATES, "/business-rates": BUSINESS_RATES}))

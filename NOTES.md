@@ -36,8 +36,11 @@ byte-identical text and sources every time (checked across processes with differ
    rate ("rate", "APY", "what does it earn?") is answered only from rows that state a percentage;
    a dollar amount is read as a fee only when its label or column says fee, cost, price or charge.
    A list question ("What are the certificate rates?") is answered from the official page of the
-   most relevant plain product (personal certificates, not business ones), and lists only that
-   page's rows whose own caption or label names the product, without variants it did not ask for.
+   most relevant plain product (personal certificates, not business ones) whose own caption or label
+   names the question's last product word ("share certificate" is a certificate, not share
+   savings). It lists that page's rows whose own caption or label names every product word asked
+   for or shares a product word with that row, without variants it did not ask for; a catalogue
+   question ("Which cards do you offer?") adds the other products that pass the same check.
 2. **Ended things are not current.** Rows from a page that says the offer has ended, and rows that
    state their own past end date ("offer ended 2025-09-30"), drop out of current answers. They still
    answer "as of" questions about the time they were live.
@@ -155,7 +158,8 @@ truth rules and question routing improved (details in the commit history).
 - **list_completeness:** the practice item "Get me the rate for the certificate of accounts" has no
   `must_include`, so it scores 0 for any answer under the kit's scorer (it now lists the personal
   certificate rates). Lists stop at 12 rows, and a list keeps sibling products on the same page that
-  share a product word ("What are the mortgage rates?" also shows the home improvement loans there).
+  share a product word ("What are the mortgage rates?" leads with the Mortgage Rate Relief Program
+  row, the only row that says "mortgage").
 - **Paraphrase in general:** matching is lexical plus a thesaurus. The blind first-run scores show
   that unseen wordings still miss sometimes; an AI question-rewriting step is the planned fix.
 - **Branch hours** exist only inside press releases about individual branches, so general hours are
