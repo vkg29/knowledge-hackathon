@@ -423,6 +423,19 @@ class Timelines(unittest.TestCase):
                   "The 17-month special APY may go up with a jumbo balance; does it?"):
             self.assertIsNone(parse(q, "2026-09-28").change, q)
 
+    def test_now_alone_is_not_time_wording_but_a_trend_is(self):
+        current = {"4.06%", "4.10%", "4.15%", "4.20%"}
+        for q in ("What's the 17-month certificate special APY right now compared to the jumbo?",
+                  "Can I change my 17-month certificate special now?",
+                  "Which is higher now, the jumbo or the regular 17-month special?"):
+            self.assertIsNone(parse(q, "2026-09-28").change, q)
+            self.assertLessEqual(set(numbers(self.ks.answer(q).text)), current, q)
+        q = "What is the trend in the 17-month certificate special APY?"
+        self.assertEqual(parse(q, "2026-09-28").change, "history")
+        ans = self.ks.answer(q)
+        self.assertTrue(ans.confident)
+        self.assertEqual(numbers(ans.text)[-3:], ["3.85%", "3.95%", "4.10%"])
+
     def test_over_the_past_year_is_the_trailing_twelve_months(self):
         today = "2026-09-28"
         for q in ("What has the 17-month certificate special APY been over the past year?",

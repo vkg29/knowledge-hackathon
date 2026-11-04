@@ -28,13 +28,13 @@ _PAST = re.compile(r"\b(was|were|used to|back in|as of|previously|before|did|had
 # year" / "in the last year" is the trailing twelve months, not the previous calendar year.
 _TRAILING_YEAR = re.compile(r"\b(?:the|this) (?:past|last) year\b", re.I)
 _CHANGE = re.compile(r"\b(changed|went (up|down)|gone (up|down)|increased|decreased|raised|rose|risen|dropped|lowered|fell|moved|"
-                     r"history|over time|happen(ed|ing)?)\b|" + _TRAILING_YEAR.pattern, re.I)
+                     r"history|over time|trend(s|ed|ing)?|happen(ed|ing)?)\b|" + _TRAILING_YEAR.pattern, re.I)
 # Verbs that also compare products ("lower than the jumbo", "does it go up with a bigger balance",
 # "how does it change with the term"): a change only in a question about time.
 _SHIFT = re.compile(r"\b(chang(e|es|ing)|go(es|ing)? (up|down)|increas(e|es|ing)|decreas(e|es|ing)|rais(e|es|ing)|"
-                    r"drop(s|ping)?|lower(s|ing)?|higher|cut(s|ting)?|mov(e|es|ing)|compar(e|ed|es|ing)|differ(s|ent|ence)?|"
-                    r"trend(s|ed|ing)?)\b", re.I)
-_TIME = re.compile(r"\b(did|was|were|been|since|ago|used to|last|recent(ly)?|previous(ly)?|earlier|now)\b|\b(19|20)\d\d\b|"
+                    r"drop(s|ping)?|lower(s|ing)?|higher|cut(s|ting)?|mov(e|es|ing)|compar(e|ed|es|ing)|differ(s|ent|ence)?)\b",
+                    re.I)
+_TIME = re.compile(r"\b(did|was|were|been|since|ago|used to|last|recent(ly)?|previous(ly)?|earlier)\b|\b(19|20)\d\d\b|"
                    r"\b(january|february|march|april|june|july|august|september|october|november|december)\b|"
                    r"\b(in|since|than|from|before|after|until|by|to|of|during|past) may\b|" + _TRAILING_YEAR.pattern, re.I)
 _BEFORE = re.compile(r"\bbefore (it|its|the|this|that)\b[^.?,;]{0,30}?\b(chang|increas|decreas|rais|rose|ris|hike|cut|drop|lower|"
