@@ -248,6 +248,18 @@ You can find us in Iowa, Illinois and Wisconsin.
 To join, simply open a savings account with $25 or more.
 """
 
+CHANCE = """# Rates
+
+Savings Account Rates
+
+| Account | Balance Tier | Dividend Rate | Annual Percentage Yield (APY) |
+| --- | --- | --- | --- |
+| {name} Savings | $0.01+ | {rate}% | {rate}% |
+| Share Savings | $0.01+ | 0.05% | 0.05% |
+
+Rates are effective as of {eff} and are subject to change without notice.
+"""
+
 RELEASE = """2 min read
 
 {date}
@@ -271,6 +283,22 @@ class IdentityMatching(unittest.TestCase):
         self.assertEqual(product_words("12 Month Term-Share Certificate", "certificate"), frozenset())
         self.assertEqual(product_words("12 Month Student Certificate", "certificate"), frozenset({"student"}))
         self.assertEqual(product_words("1st Rate Checking", "checking"), frozenset({"1st"}))
+        self.assertEqual(product_words("First Rate Checking", "checking"), frozenset({"1st"}))
+        self.assertEqual(product_words("Tenth Avenue Certificate", "certificate"), product_words("10th Avenue Certificate", "certificate"))
+
+    def test_an_ordinal_names_one_product_however_it_is_spelled(self):
+        ks = system(snap("01_2026-05-12_a", "2026-05-12", {"/rates": CHANCE.format(name="Second Chance", rate="0.50", eff="03/03/2026")}),
+                    snap("02_2026-09-28_b", "2026-09-28", {"/rates": CHANCE.format(name="2nd Chance", rate="0.60", eff="08/01/2026")}))
+        ids = ks.ledger.identities()
+        chance = {ids[r.rid] for r in ks.ledger.rows if r.kind == "table" and "Chance" in r.label}
+        self.assertEqual(len(chance), 1, chance)
+        self.assertEqual(next(iter(chance)).product, frozenset({"2nd", "chanc"}))
+        share = {ids[r.rid] for r in ks.ledger.rows if r.kind == "table" and r.label == "Share Savings"}
+        self.assertTrue(share and not share & chance)
+        self.assertEqual(numbers(ks.answer("What does 2nd Chance Savings pay?").text), ["0.60%", "0.60%"])
+        then = ks.answer("What did Second Chance Savings pay?", as_of="2026-05-15")
+        self.assertEqual(numbers(then.text), ["0.50%", "0.50%"])
+        self.assertEqual([c.resolution for c in ks.conflicts() if "Chance" in c.topic], ["0.60% dividend rate / 0.60% APY"])
 
     def test_renamed_model_year_tiers_keep_their_slot_across_crawls(self):
         ks = system(snap("01_2026-05-12_a", "2026-05-12", {"/rates": AUTO.format(new="2023-26", mid="2021-22", a="5.19", b="5.44", eff="5/1/2026")}),
@@ -353,6 +381,31 @@ class Timelines(unittest.TestCase):
         when = self.ks.answer("When did the 17-month certificate special rate last change?")
         self.assertIn("September 1, 2026", when.text)
         self.assertIn("from 3.95% APY to 4.10% APY", when.text)
+
+    def test_comparing_products_is_not_a_question_about_change(self):
+        for q in ("Is the 17-month certificate special APY lower than the jumbo 17-month certificate special APY?",
+                  "Does the 17-month certificate special APY go up with a jumbo balance?",
+                  "How does the 17-month certificate special rate change with a jumbo balance?"):
+            ans = self.ks.answer(q)
+            self.assertTrue(ans.confident, q)
+            self.assertTrue(numbers(ans.text), q)
+            self.assertLessEqual(set(numbers(ans.text)), {"4.06%", "4.10%", "4.15%", "4.20%"}, q)
+        self.assertIsNone(parse("What does the 17-month special pay before the jumbo tier?", "2026-09-28").change)
+        self.assertEqual(parse("Did the 17-month special rate drop?", "2026-09-28").change, "history")
+        self.assertEqual(parse("Is the 17-month special rate lower than it was in June?", "2026-09-28").change, "history")
+
+    def test_over_the_past_year_is_the_trailing_twelve_months(self):
+        today = "2026-09-28"
+        for q in ("What has the 17-month certificate special APY been over the past year?",
+                  "How has the 17-month certificate special APY changed in the last year?"):
+            parsed = parse(q, today)
+            self.assertIsNone(parsed.year, q)
+            self.assertEqual((parsed.change, parsed.since), ("history", "2025-09-28"), q)
+            ans = self.ks.answer(q)
+            self.assertTrue(ans.confident, q)
+            self.assertEqual(numbers(ans.text)[-3:], ["3.85%", "3.95%", "4.10%"], q)
+        self.assertIsNone(parse("How many employees volunteered this past year?", today).year)
+        self.assertEqual(parse("How many employees volunteered last year?", today).year, 2025)
 
     def test_ended_special_is_never_presented_as_current(self):
         gone = self.ks.answer("Is the 25-month certificate special still available?")

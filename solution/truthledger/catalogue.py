@@ -103,14 +103,13 @@ GENERIC_PRODUCT = frozenset(stem(w) for w in _FILLER) | STOPWORDS
 def product_words(text: str, family: Optional[str] = None) -> frozenset:
     """The distinctive name words of a product of `family` in `text` (stemmed), without numbers. The
     family's own words are dropped ('Share Savings' is the savings product 'share'; a 'Term-Share
-    Certificate' is just a certificate); with no family, every family's words are."""
+    Certificate' is just a certificate); with no family, every family's words are. An ordinal is a
+    name word, written one way whichever way the text spells it ('Second Chance' is '2nd Chance')."""
     drop = GENERIC_PRODUCT | _VOCAB.get(family, _ALL_VOCAB)
-    return frozenset(t for t in tokens(text) if t.isalpha() and len(t) > 1 and t not in drop) | _ordinal_names(text)
+    words = (_ORDINAL_WORDS.get(t, t) for t in tokens(text))
+    return frozenset(t for t in words if _ORDINAL.fullmatch(t) or (t.isalpha() and len(t) > 1 and t not in drop))
 
 
-_ORDINAL_NAME = re.compile(r"\b(1st|first)\s+rate\b", re.I)
-
-
-def _ordinal_names(text: str) -> frozenset:
-    """'1st Rate Checking' (or 'First Rate') is named by its ordinal: keep it as a name word."""
-    return frozenset({"1st"}) if _ORDINAL_NAME.search(text or "") else frozenset()
+_ORDINAL_WORDS = dict(zip((stem(w) for w in "first second third fourth fifth sixth seventh eighth ninth tenth eleventh twelfth".split()),
+                          "1st 2nd 3rd 4th 5th 6th 7th 8th 9th 10th 11th 12th".split()))
+_ORDINAL = re.compile(r"\d+(st|nd|rd|th)")

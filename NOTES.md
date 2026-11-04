@@ -61,7 +61,8 @@ every time (checked across processes with different hash seeds).
    refinance question is answered only by facts of that kind (no Roth IRA money market exists, so
    that question is refused instead of answered with certificate rates; "after the intro period"
    asks for the ongoing rate, not the intro one). A product word the question names that the site
-   uses ("Bright", "1st Rate", "special") selects that product; a plainer product beats a sibling
+   uses ("Bright", "1st Rate", "special") selects that product (an ordinal is one name word however
+   it is spelled: "First Rate" is "1st Rate", "Second Chance" is "2nd Chance"); a plainer product beats a sibling
    whose extra name words the question did not use ("12-month certificate" is the regular one, not the
    Student one). When the question names no product, the product of the most official page among
    the close candidates is meant (Investor's Choice from the rate sheet, not a promotion's money
@@ -100,12 +101,16 @@ every time (checked across processes with different hash seeds).
   then 3.95% (effective July 14, 2026), then 4.10% (effective September 1, 2026), which is the
   current rate"; "before its most recent increase", "when did it last change", "between May and
   September" and "is it still offered" are read from the same history. A superseded figure is always
-  stated as a past one, with the date it changed. With a model year in the question, each crawl's
+  stated as a past one, with the date it changed. Only wording about time makes a question a
+  change question: "lower than the jumbo", "does it go up with a bigger balance" or "how does it
+  change with the term" compare products and get today's values; "lower", "go up" or "change" count
+  as a change only beside a time word ("did", "was", "since", "ago", "last", a year). With a model year in the question, each crawl's
   slot is the one whose printed years contained it, so "a 2023 car since May" correctly goes from the
   May "2023-26" tier (5.19%) to today's "2021-23" tier (5.64%).
 - **Relative dates** count back from the newest crawl (28 Sep 2026): "last month" is 31 Aug, "two
-  months ago" is 28 Jul, "this past May" or "in May" is 31 May 2026, "last year" is 2025. A rate
-  question about a year before the first crawl says the site is not known for that year.
+  months ago" is 28 Jul, "this past May" or "in May" is 31 May 2026, "last year" is 2025, and "over
+  the past year" or "in the last year" is the twelve months up to the newest crawl, read as a history.
+  A rate question about a year before the first crawl says the site is not known for that year.
 - **Two passages joined.** An answer that defines an area only by name ("live or work within our
   charter area") is joined with the sentence on the same page that names the places ("You can find us
   in Iowa, Illinois and Wisconsin"). Membership-eligibility questions go straight to the section of the
@@ -151,6 +156,9 @@ candidate is, and the truth rules say which copy of that fact is true.
 Run from the repository root after copying the kit's `snapshots_zip/` there (see README.md). All
 numbers below are from the kit's own `harness/run_eval.py`; no conflicts gold ships with the kit, so
 `final_score` equals accuracy when speed and consistency are 1.0.
+
+The acceptance bar for this stage: beat the first version on the public practice set, no regression on
+any held-out set, and zero stale numbers. Ties on v1, v2 and v3 meet it (v2 is already at the 1.000 ceiling).
 
 | Question set | Questions | Merged first version | This stage | Consistency | p95 latency |
 |---|---|---|---|---|---|
