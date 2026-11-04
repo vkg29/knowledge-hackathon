@@ -60,7 +60,7 @@ class LedgerKnowledge:
                 res, k = found
         snap = self.ledger.snapshots[k].snapshot_id
         sources, seen = [], set()
-        for row in list(res.rows) + list(res.support):
+        for row in list(res.first) + list(res.rows) + list(res.support):
             if row.page.url in seen or len(sources) >= _MAX_SOURCES:
                 continue
             seen.add(row.page.url)
@@ -146,15 +146,16 @@ def compare(parts: list) -> Result:
     verdict = _verdict(answered) if len(answered) == len(parts) else None
     if verdict:
         lines.append(verdict)
-    rows, support, seen = [], [], set()
+    rows, support, first, seen = [], [], [], set()
     for r in answered:
         for row in r.rows:
             if row.rid not in seen:
                 seen.add(row.rid)
                 rows.append(row)
         support.extend(r.support)
+        first.extend(r.first)
     note = next((r.note for r in answered if r.note), None)
-    return Result(" ".join(lines), rows, note=note, support=support)
+    return Result(" ".join(lines), rows, note=note, support=support, first=first)
 
 
 def _verdict(answered: list) -> Optional[str]:

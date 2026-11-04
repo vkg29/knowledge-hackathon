@@ -20,7 +20,8 @@ _LIST_WORDS = re.compile(r"\b(what|which)\b.*\b(do you|does dupaco)\s+(offer|hav
                          r"\b(rates|aprs|apys|fees|cards|loans|accounts|certificates|options|products)\b(?!\s+(on|for)\s+(a|an|the)\b)", re.I)
 _SUPER_MAX = re.compile(r"\b(highest|best|top|maximum|max|most)\b", re.I)
 _SUPER_MIN = re.compile(r"\b(lowest|cheapest|minimum|least)\b", re.I)
-_URL_WORDS = re.compile(r"\b(link|url|web ?page|website address|web address)\b", re.I)
+_URL_WORDS = re.compile(r"\b(link|url|web ?page|website address|web address)\b|"
+                        r"\bwhere on (dupaco'?s |the |your )?(web ?)?site\b|\b(which|what) page\b", re.I)
 _PAST = re.compile(r"\b(was|were|used to|back in|as of|previously|before|did|had|paid)\b|\bago\b|\blast (month|week|quarter)\b|"
                    r"\bthis past\b|\bearlier this year\b", re.I)
 # "What changed since May?", "what did it pay before it went up?", "when did it last change?",
@@ -91,7 +92,8 @@ def parse(question: str, today: Optional[str] = None, calendar_year: Optional[in
         metric = "dividend rate"
     elif re.search(r"\bmin(imum|\.)?\b.*\bopen|\bopen\b.*\bmin(imum|\.)?\b|how much .*\bto open\b", low):
         metric = "minimum to open"
-    rate_intent = bool(_RATE_WORDS.search(low)) and not re.search(r"\binterest(ed)? in\b", low)
+    # "How many years has a participation dividend been paid?" asks for a count, not a rate.
+    rate_intent = bool(_RATE_WORDS.search(low)) and not re.search(r"\binterest(ed)? in\b|\bhow many\b", low)
     # "What does the 10-month special pay?" asks for a table value without saying "rate".
     earns = bool(_EARN_WORDS.search(low) and _RATE_PRODUCTS.search(low))
     rate_implied = not rate_intent and (earns or bool(_COST_WORDS.search(low) and _RATE_PRODUCTS.search(low))
@@ -216,7 +218,7 @@ def _period_start(text: str, today: Optional[str]) -> Optional[str]:
 def _answer_type(low: str) -> Optional[str]:
     if re.search(r"\baddress\b|\blocated\b|\bwhere('s| is| are)\b.*\bbranch\b", low) and "email" not in low and "web" not in low:
         return "address"
-    if re.search(r"\bphone number\b|\btelephone\b|\bnumber\b.*\b(call|reach)\b|\bcall\b.*\bnumber\b|\bcall (you|dupaco)\b", low):
+    if re.search(r"\b(phone|fax) number\b|\btelephone\b|\bfax\b|\bnumber\b.*\b(call|reach)\b|\bcall\b.*\bnumber\b|\bcall (you|dupaco)\b", low):
         return "phone"
     if re.search(r"\brouting\b|\baba\b", low):
         return "routing"
