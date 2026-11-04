@@ -24,11 +24,6 @@ class LedgerKnowledge:
         self._cache.clear()
         self._answerer = Answerer(self.ledger)   # index now: loading is untimed, answering is
 
-    def _engine(self) -> Answerer:
-        if self._answerer is None:
-            self._answerer = Answerer(self.ledger)
-        return self._answerer
-
     def answer(self, question: str, as_of: Optional[str] = None):
         key = (question, as_of)
         if key not in self._cache:
@@ -39,7 +34,7 @@ class LedgerKnowledge:
         c = self._c
         if not self.ledger.snapshots:
             return c.Answer(text="I don't know yet; nothing has been loaded.", confident=False)
-        res, k = self._engine().answer(self.hooks.rewrite_question(question), as_of)
+        res, k = self._answerer.answer(self.hooks.rewrite_question(question), as_of)
         snap = self.ledger.snapshots[k].snapshot_id
         sources, seen = [], set()
         for row in list(res.rows) + list(res.support):

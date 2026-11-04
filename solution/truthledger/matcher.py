@@ -63,9 +63,3 @@ class LexicalIndex:
                 dl = self.lengths[doc]
                 out[doc] += idf * tf * (K1 + 1) / (tf + K1 * (1 - B + B * dl / self.avg))
         return out
-
-    def coverage(self, query: dict[str, float], doc_terms: set) -> float:
-        """Share of the question's (idf-weighted) words that a row contains."""
-        total = sum(self.idf.get(t, 0.0) * w for t, w in query.items() if w >= 1.0)
-        hit = sum(self.idf.get(t, 0.0) * w for t, w in query.items() if w >= 1.0 and t in doc_terms)
-        return hit / total if total else 0.0

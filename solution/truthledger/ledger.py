@@ -1,7 +1,8 @@
 """The fact ledger: every row every page ever said, with where and when it was seen.
 
-Rows are stored once per distinct page version and shared across the snapshots that contain
-that version, so history is complete but cheap. A *view* is the website as it stood at one
+Rows are stored once per page version and shared across consecutive snapshots that show the
+same content, so history is complete but cheap (a page that changes back to older content is a
+new version, dated by the crawl that saw it again). A *view* is the website as it stood at one
 snapshot: every page in its newest version at or before that snapshot (a page that drops out
 of a later crawl keeps its last known content, as the snapshot README describes).
 """
@@ -78,7 +79,7 @@ class Ledger:
         self.versions: list[PageVersion] = []
         self.rows: list[Row] = []
         self.rows_by_version: dict[int, list[Row]] = {}
-        self._version_by_hash: dict[tuple, int] = {}
+        self._latest: dict[str, tuple[str, int]] = {}   # canonical url -> (content hash, vid) of its newest version
         self._views: dict[int, list[Row]] = {}
 
     # ---- loading -------------------------------------------------------------------------
@@ -88,11 +89,13 @@ class Ledger:
             url = canonical_url(p.url)
             if url in info.pages:
                 continue
-            key = (url, hashlib.sha1(p.markdown.encode("utf-8")).hexdigest())
-            vid = self._version_by_hash.get(key)
-            if vid is None:
+            digest = hashlib.sha1(p.markdown.encode("utf-8")).hexdigest()
+            latest = self._latest.get(url)
+            if latest and latest[0] == digest:
+                vid = latest[1]
+            else:
                 vid = self._add_version(url, p, info.index)
-                self._version_by_hash[key] = vid
+                self._latest[url] = (digest, vid)
             info.pages[url] = vid
         self.snapshots.append(info)
         self._views.clear()

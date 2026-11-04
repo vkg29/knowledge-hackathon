@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "solution"))
 
 from contract import Page, Snapshot  # noqa: E402
 from truthledger.qualifiers import parse_question_qualifiers, parse_row_qualifiers  # noqa: E402
+from truthledger.query import parse  # noqa: E402
 from truthledger.text import effective_date, find_dates  # noqa: E402
 
 from solution import build  # noqa: E402
@@ -85,6 +86,36 @@ PROMO = """# Summer Savings
 Summer special: 6-month certificate APY 4.50% (offer ended 2026-05-31)
 """
 
+BLOG_TABLE = """# Saving tips
+
+Certificates
+
+| Certificate | APY |
+| --- | --- |
+| 12 Month Term Certificate | 2.90% |
+"""
+
+STUDENT_TABLE = """# Student Certificates
+
+Student Certificates
+
+| Certificate | APY |
+| --- | --- |
+| 12 Month Student Certificate | 4.00% |
+"""
+
+TERMS_TABLE = """# Rates
+
+Share Certificates
+
+| Certificate | Annual Percentage Yield (APY) |
+| --- | --- |
+| 6 Month | {apy}% |
+| 9 Month | {apy}% |
+
+Rates are effective as of {eff}.
+"""
+
 
 def snap(sid, date, pages):
     return Snapshot(sid, date, [Page(url=SITE + path, title=path.strip("/") or "home", markdown=md,
@@ -137,13 +168,60 @@ class TruthRules(unittest.TestCase):
         ans = self.ks.answer("What was the 12-month certificate APY?", as_of="2025-01-01")
         self.assertIn("2.90%", ans.text)
 
-    def test_ended_promotion_is_not_current_but_answers_as_of(self):
+    def test_ended_promotion_is_not_current_and_official_page_outranks_it(self):
         current = self.ks.answer("What is the 6-month certificate APY?")
         self.assertIn("3.40%", current.text)
         self.assertNotIn("4.50%", current.text)
         past = self.ks.answer("What was the 6-month certificate APY?", as_of="2026-05-20")
-        self.assertNotIn("4.50%", past.text)   # the official rate sheet still outranks the promo page
+        self.assertNotIn("4.50%", past.text)
         self.assertIn("3.40%", past.text)
+
+    def test_ended_promotion_answers_as_of_its_time(self):
+        ks = system(snap("01_2026-05-12_base", "2026-05-12", {"/promo": PROMO, "/contact": CONTACT}),
+                    snap("02_2026-09-28_latest", "2026-09-28", {"/promo": PROMO, "/contact": CONTACT}))
+        past = ks.answer("What APY did the summer special 6-month certificate pay?", as_of="2026-05-20")
+        self.assertIn("4.50%", past.text)
+        self.assertTrue(past.confident)
+        self.assertNotIn("4.50%", ks.answer("What APY does the summer special 6-month certificate pay?").text)
+
+    def test_date_in_question_text_sets_the_as_of_date(self):
+        for q in ("What was the 12-month certificate APY as of May 15, 2026?", "What was the 12-month certificate APY on 5/15/2026?"):
+            ans = self.ks.answer(q)
+            self.assertIn("2.90%", ans.text, q)
+            self.assertNotIn("3.40%", ans.text, q)
+        self.assertEqual(parse("What was the 12-month certificate APY as of mid-May 2026?").as_of_hint, "2026-05-15")
+        self.assertEqual(parse("What was the 12-month certificate APY in May 2026?").as_of_hint, "2026-05-31")
+
+    def test_date_in_question_is_not_a_model_year(self):
+        ans = self.ks.answer("What was the 60-month auto loan APR in May 2026?")
+        self.assertIn("5.19%", ans.text)
+        self.assertIn("6.10%", ans.text)
+        self.assertIsNone(parse_question_qualifiers("60-month auto loan rate as of June 2026").years)
+        self.assertEqual(parse_question_qualifiers("As of May 2026, the APR on a 2025 model-year car?").years, (2025, 2025))
+
+
+class Authority(unittest.TestCase):
+    def setUp(self):
+        self.ks = system(snap("01_2026-09-28_only", "2026-09-28", {
+            "/rates": CERT_TABLE.format(r12="3.37", a12="3.40", eff="09/01/2026"), "/learn/certificate-tips": BLOG_TABLE}))
+
+    def test_official_rate_sheet_beats_a_closer_worded_blog_row(self):
+        ans = self.ks.answer("What is the 12-month certificate APY?")
+        self.assertIn("3.40%", ans.text)
+        self.assertNotIn("2.90%", ans.text)
+        self.assertEqual(ans.sources[0].url, SITE + "/rates")
+        self.assertIn("/rates", ans.conflict_note)
+
+    def test_catalogue_never_lists_the_blog_value(self):
+        ans = self.ks.answer("Which certificates do you offer and what are their APYs?")
+        self.assertIn("3.40%", ans.text)
+        self.assertNotIn("2.90%", ans.text)
+
+    def test_a_product_the_question_names_is_not_merged_into_another(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {
+            "/rates": CERT_TABLE.format(r12="3.37", a12="3.40", eff="09/01/2026"), "/student-certificates": STUDENT_TABLE}))
+        self.assertEqual(numbers(ks.answer("What is the 12-month student certificate APY?").text), ["4.00%"])
+        self.assertEqual(numbers(ks.answer("What is the 12-month certificate APY?").text), ["3.40%"])
 
 
 class Qualifiers(unittest.TestCase):
@@ -240,6 +318,24 @@ class Conflicts(unittest.TestCase):
         self.assertTrue(any("2.90%" in v for v in c.values) and any("3.40%" in v for v in c.values))
         self.assertIn("3.40%", c.resolution)
         self.assertTrue(c.reason)
+
+    def test_terms_with_the_same_rate_history_are_separate_conflicts(self):
+        ks = system(snap("01_2026-05-12_base", "2026-05-12", {"/rates": TERMS_TABLE.format(apy="3.25", eff="03/03/2026")}),
+                    snap("02_2026-09-28_latest", "2026-09-28", {"/rates": TERMS_TABLE.format(apy="3.40", eff="06/02/2026")}))
+        topics = sorted(c.topic for c in ks.conflicts())
+        self.assertEqual(len(topics), 2, topics)
+        self.assertIn("6", topics[0])
+        self.assertIn("9", topics[1])
+
+    def test_page_that_changes_back_is_sourced_from_the_crawl_that_saw_it_again(self):
+        a = CERT_TABLE.format(r12="3.37", a12="3.40", eff="06/02/2026")
+        b = CERT_TABLE.format(r12="2.88", a12="2.90", eff="07/01/2026")
+        ks = system(snap("01_2026-05-12_a", "2026-05-12", {"/rates": a}), snap("02_2026-06-09_b", "2026-06-09", {"/rates": b}),
+                    snap("03_2026-09-28_a", "2026-09-28", {"/rates": a}))
+        self.assertIn("3.40%", ks.answer("What is the APY on a 12-month certificate?").text)
+        conflicts = ks.conflicts()
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0].sources[0].snapshot_id, "03_2026-09-28_a")
 
 
 class Determinism(unittest.TestCase):

@@ -18,11 +18,10 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from .rules import explain, is_live, truth_key
+from .rules import explain, is_live, product_words, same_tier, truth_key
 from .vocab import STOPWORDS, stem, tokens
 
 _RATE_METRICS = ("rate", "dividend rate", "APY", "APR", "fee")
-_FAMILY_NOISE = {"model", "year", "month", "or", "less", "and", "older", "fixed"}
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
 
@@ -30,15 +29,16 @@ def find_conflicts(ledger, contract) -> list:
     if not ledger.snapshots:
         return []
     ranked = _table_conflicts(ledger, contract) + _statement_conflicts(ledger, contract)
-    return _merge_duplicates([c for _, c in sorted(ranked, key=lambda rc: (rc[0], rc[1].topic))])
+    return _merge_duplicates(sorted(ranked, key=lambda item: (item[0], item[2].topic)))
 
 
-def _merge_duplicates(conflicts: list) -> list:
-    """The same change shown under several product names (a special and its IRA twin) is one
-    contradiction; keep the plainest product's copy (fewest variant words)."""
+def _merge_duplicates(ranked: list) -> list:
+    """The same change shown under several product names (a special and its IRA twin: same term
+    and tier, same values) is one contradiction; keep the plainest product's copy (fewest variant
+    words)."""
     seen, out = set(), []
-    for c in conflicts:
-        key = frozenset(c.values)
+    for _, tier, c in ranked:
+        key = (tier, frozenset(c.values))
         if key not in seen:
             seen.add(key)
             out.append(c)
@@ -46,21 +46,6 @@ def _merge_duplicates(conflicts: list) -> list:
 
 
 # ---- rate tables ---------------------------------------------------------------------------
-_GENERIC_WORDS = {"rate", "rates", "loan", "loans", "account", "accounts", "type", "program", "standard"}
-
-
-def _family_words(row) -> frozenset:
-    return frozenset(t for t in tokens(f"{row.caption} {row.label}")
-                     if t.isalpha() and t not in _FAMILY_NOISE and t not in _GENERIC_WORDS and t not in STOPWORDS)
-
-
-def _same_tier(a, b) -> bool:
-    ya, yb = a.quals.years, b.quals.years
-    if (ya is None) != (yb is None) or (ya and not (ya[0] <= yb[1] and yb[0] <= ya[1])):
-        return False
-    return a.quals.amount == b.quals.amount
-
-
 def _numbers(row) -> tuple:
     """The rate figures a row states, one per metric (its first percentage), for comparison."""
     out = []
@@ -85,7 +70,7 @@ def _clusters(rows: list) -> list[list]:
         by_shape[(r.quals.terms, r.quals.variants, tuple(sorted(m for m, _ in _numbers(r))))].append(r)
     out = []
     for shape_rows in by_shape.values():
-        words = sorted({_family_words(r) for r in shape_rows if _family_words(r)}, key=lambda w: (len(w), sorted(w)))
+        words = sorted({product_words(r) for r in shape_rows if product_words(r)}, key=lambda w: (len(w), sorted(w)))
         parent = {w: w for w in words}
 
         def find(w):
@@ -99,7 +84,7 @@ def _clusters(rows: list) -> list[list]:
                     parent[find(b)] = find(a)
         groups: dict = defaultdict(list)
         for r in shape_rows:
-            w = _family_words(r)
+            w = product_words(r)
             if w:
                 groups[find(w)].append(r)
         out.extend(groups.values())
@@ -120,7 +105,7 @@ def _table_conflicts(ledger, c) -> list:
     for cluster in _clusters(rows):
         cluster.sort(key=lambda r: r.rid)
         disagreements = [(a, b) for i, a in enumerate(cluster) for b in cluster[i + 1:]
-                         if _same_tier(a, b) and _numbers(a) != _numbers(b)]
+                         if same_tier(a, b) and _numbers(a) != _numbers(b)]
         if not disagreements:
             continue
         live = [r for r in cluster if r.rid in current_ids and is_live(r, on_date)]
@@ -145,7 +130,8 @@ def _table_conflicts(ledger, c) -> list:
                                         quote=r.text[:200]))
         resolution = "; ".join(f"{r.label}{' (' + r.qual_text + ')' if r.qual_text else ''}: {', '.join(_value_text(r))}"
                                for r in winners[:6])
-        out.append(((len(winner.quals.variants), len(_topic(winner))),
+        q = winner.quals
+        out.append(((len(q.variants), len(_topic(winner))), ("table", q.terms, q.years, q.amount),
                     c.Conflict(topic=_topic(winner), values=values, sources=sources, resolution=resolution,
                                reason=explain(winner, loser) + "; tiers and rate-vs-APY columns are kept as separate facts.")))
     return out
@@ -217,7 +203,7 @@ def _statement_conflicts(ledger, c) -> list:
         for key in by_value:
             r = max(by_value[key], key=truth_key)
             sources.append(c.Source(url=r.page.url, snapshot_id=ledger.snapshots[r.page.first_snapshot].snapshot_id, quote=r.text[:200]))
-        out.append(((0, len(winner.text)),
+        out.append(((0, len(winner.text)), ("statement",),
                     c.Conflict(topic=winner.text[:120], values=values, sources=sources[:6], resolution=winner.text,
                                reason=explain(winner, loser))))
     return out

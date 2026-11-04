@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .qualifiers import Qualifiers, parse_question_qualifiers
-from .text import MONTHS, month_year_end, norm
+from .text import MONTHS, date_asked, norm
 from .vocab import GENERIC, STOPWORDS, content_tokens, expand, tokens
 
 _RATE_WORDS = re.compile(r"\b(rates?|apys?|aprs?|yields?|dividends?|interest|percent)\b|%", re.I)
@@ -67,7 +67,7 @@ def parse(question: str) -> Question:
             hours = "drive-up"
         else:
             hours = "any"
-    as_of_hint = month_year_end(q) if _PAST.search(low) else None
+    as_of_hint = date_asked(q) if _PAST.search(low) else None
     dateless = re.sub(r"\b(19|20)\d\d\b|\b(january|february|march|april|may|june|july|august|september|october|"
                       r"november|december)\b|\btoday\b", " ", plain, flags=re.I)
     key_words = [t for t in content_tokens(dateless) if t not in GENERIC]

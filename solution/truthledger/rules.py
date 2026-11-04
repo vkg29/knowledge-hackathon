@@ -19,6 +19,7 @@ import re
 from typing import Optional
 
 from .text import find_dates
+from .vocab import STOPWORDS, tokens
 
 _ENDED_PAGE = re.compile(r"this offer has ended|offer has expired|promotion has ended|this offer is no longer", re.I)
 _ENDS_ON = re.compile(r"\b(?:offer|promotion|special|rate|sale)\b[^.]{0,40}?\b(?:ended|expired|ends|expires|valid (?:through|until))\b", re.I)
@@ -45,9 +46,27 @@ def is_live(row, on_date: str) -> bool:
     return end is None or end >= on_date
 
 
-def truth_key(row, crawl_rank: int = 0) -> tuple:
+def truth_key(row) -> tuple:
     """Sort key; the highest key is the row believed true."""
-    return (row.authority, row.dated, crawl_rank, row.page.fetched_at, -row.rid)
+    return (row.authority, row.dated, row.page.fetched_at, -row.rid)
+
+
+_PRODUCT_NOISE = {"model", "year", "month", "or", "less", "and", "older", "fixed",
+                  "rate", "rates", "loan", "loans", "account", "accounts", "type", "program", "standard"}
+
+
+def product_words(row) -> frozenset:
+    """The words that name a table row's product (its caption and label, minus tier and filler words)."""
+    return frozenset(t for t in tokens(f"{row.caption} {row.label}")
+                     if t.isalpha() and t not in _PRODUCT_NOISE and t not in STOPWORDS)
+
+
+def same_tier(a, b) -> bool:
+    """Overlapping model-year ranges and the same balance or loan amount."""
+    ya, yb = a.quals.years, b.quals.years
+    if (ya is None) != (yb is None) or (ya and not (ya[0] <= yb[1] and yb[0] <= ya[1])):
+        return False
+    return a.quals.amount == b.quals.amount
 
 
 def explain(winner, loser) -> str:

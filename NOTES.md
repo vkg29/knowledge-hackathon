@@ -35,7 +35,11 @@ byte-identical text and sources every time (checked across processes with differ
    answer "as of" questions about the time they were live.
 3. **Authority.** An official page with a dated rate table beats an official product page, which
    beats a promotion landing page, a downloaded document (PDF), a press release, a blog post, and
-   finally a calculator (calculators embed rate tables that are rarely refreshed).
+   finally a calculator (calculators embed rate tables that are rarely refreshed). Rows on different
+   pages with the same term, tier, variant and metric that share a product word state the same fact
+   unless the question names a word that tells them apart ("student"); these copies compete on the
+   rules *before* relevance is cut, so a blog row worded closer to the question cannot push the rate
+   sheet out, and the fact keeps the best relevance any of its copies earned.
 4. **Recency among equals.** The date printed on the page wins: "Rates are effective as of …" for
    tables, the byline date for press releases and blog posts. Then the crawl that last saw it.
 5. **Repeated statements.** The same sentence printed with different figures (press-release
@@ -127,7 +131,9 @@ truth rules and question routing improved (details in the commit history).
   system returns a related passage instead of the phone number the graders expect. Fine print with
   many clauses in one sentence (e.g. the Platinum Visa late fee) is hard to match lexically.
 - **temporal_as_of:** relative dates in the question text ("last year") are not resolved; only
-  explicit "as of"/"in May 2026" style dates and the `as_of` argument are used.
+  explicit dates ("as of May 15, 2026", "on 6/1/2026", "in mid-May 2026" = the 15th, "in May 2026" =
+  the month's last day) and the `as_of` argument are used. A written date is never read as a model
+  year.
 - **stale_trap:** an open question like "What recognition has Dupaco received from Forbes?" can land
   on press-release boilerplate instead of the newest Forbes release (a reworded "How many times has
   Forbes recognized Dupaco?" is answered correctly).

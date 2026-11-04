@@ -141,8 +141,7 @@ def _table_rows(block: _Block, caption: list[str], section: str, effective: Opti
                 continue
             metric = _metric_name(head, cell) if (percents(cell) or "$" in cell or re.fullmatch(r"\d+(\.\d+)?", cell)) else None
             if metric and (metric == "minimum to open" or not (_QUAL_HEADERS.search(head) and not percents(cell))):
-                value = cell if metric != "points" else cell
-                value = re.sub(r"\s*(APR|APY)$", "", value).strip()
+                value = re.sub(r"\s*(APR|APY)$", "", cell).strip()
                 values.append((metric, value))
             else:
                 qual_cells.append((head, cell))
@@ -151,7 +150,7 @@ def _table_rows(block: _Block, caption: list[str], section: str, effective: Opti
         quals = parse_row_qualifiers(label, qual_cells, caption)
         qual_text = ", ".join(c for h, c in qual_cells if not re.search(r"min\.? to", h, re.I))
         subject = " > ".join(caption + [label])
-        vtext = ", ".join(f"{v} {m}" if m in ("APY", "APR") else f"{v} {m}" for m, v in values if m not in ("payment example", "points"))
+        vtext = ", ".join(f"{v} {m}" for m, v in values if m not in ("payment example", "points"))
         text = f"{label}{' (' + qual_text + ')' if qual_text else ''}: {vtext}"
         out.append(RawRow("table", subject, text, section, tuple(values), quals, effective,
                           label=label, caption=caption[-1] if caption else "", qual_text=qual_text))

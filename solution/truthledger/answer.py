@@ -15,7 +15,7 @@ from .ledger import Ledger, Row
 from .matcher import LexicalIndex, row_document
 from .qualifiers import amount_match, parse_terms, terms_match, years_match
 from .query import Question, parse
-from .rules import explain, is_live, truth_key
+from .rules import explain, is_live, product_words, same_tier, truth_key
 from .text import has_digit, norm
 from .vocab import STOPWORDS, expand, stem, tokens, with_prefixes
 
@@ -149,35 +149,38 @@ class Answerer:
             return None
         if q.quals.amount:
             cands = _tightest_tier(cands)
-        cands.sort(key=lambda c: (-c[0], c[1].rid))
-        top = cands[0][0]
-        band = [c for c in cands if c[0] >= (0.6 if listing else 0.75) * top]
-        # Rows stating the same fact compete; the truest copy of each fact survives.
-        winners: dict[tuple, tuple] = {}
-        for s, r in band:
-            key = _fact_key(r)
-            if key not in winners or (truth_key(r), s) > (truth_key(winners[key][1]), winners[key][0]):
-                winners[key] = (s, r)
-        best = max(winners.values(), key=lambda c: (truth_key(c[1]), c[0]))[1]
+        # Rows stating the same fact compete by the truth rules, before relevance is cut: the truest
+        # copy of each fact survives and carries the best relevance score any copy of it earned.
+        truest = _truest(q, [r for _, r in cands])
+        relevance: dict[int, float] = defaultdict(float)
+        for s, r in cands:
+            t = truest[r.rid]
+            relevance[t.rid] = max(relevance[t.rid], s)
+        facts = sorted((r for _, r in cands if truest[r.rid] is r), key=lambda r: (-relevance[r.rid], r.rid))
+        top = relevance[facts[0].rid]
+        band = [r for r in facts if relevance[r.rid] >= (0.6 if listing else 0.75) * top]
+        best = max(band, key=lambda r: (truth_key(r), relevance[r.rid]))
         if not listing:
-            rows = [r for _, r in winners.values() if _same_table(r, best)]
+            rows = [r for r in band if _same_table(r, best)]
         elif _catalogue(q):
-            rows = [r for _, r in winners.values()]
+            rows = band
         else:   # everything the truest page lists for this product
-            rows = [r for _, r in cands if r.page.vid == best.page.vid]
+            rows = list({truest[r.rid].rid: truest[r.rid] for _, r in cands if r.page.vid == best.page.vid}.values())
         rows = _dedupe(sorted(rows, key=lambda r: (r.page.vid != best.page.vid, r.page.url, r.pos)))
         if q.superlative:
             rows = [_extreme(rows, q)]
         rows = rows[:12]
-        losers = [r for _, r in band if _fact_key(r) in {_fact_key(x) for x in rows} and r not in rows
-                  and _value(r, q) != _value(next(x for x in rows if _fact_key(x) == _fact_key(r)), q)]
+        shown = {r.rid for r in rows}
+        copies = [r for _, r in cands if r.rid not in shown and truest[r.rid].rid in shown]
+        losers = [r for r in copies if _value(r, q) != _value(truest[r.rid], q)]
         note = None
         if losers:
             loser = max(losers, key=truth_key)
-            note = "Other pages show a different figure; kept the value from the truest source: " + explain(best, loser) + "."
-        keys = {(_fact_key(r), _value(r, q)) for r in rows}
-        support = [r for _, r in sorted(cands, key=lambda c: (-c[1].authority, c[1].page.url))
-                   if (_fact_key(r), _value(r, q)) in keys and r.page.vid not in {x.page.vid for x in rows}]
+            note = ("Other pages show a different figure; kept the value from the truest source: "
+                    + explain(truest[loser.rid], loser) + ".")
+        shown_pages = {r.page.vid for r in rows}
+        support = [r for r in sorted(copies, key=lambda r: (-r.authority, r.page.url))
+                   if _value(r, q) == _value(truest[r.rid], q) and r.page.vid not in shown_pages]
         return Result("; ".join(_render(r, q) for r in rows) + ".", rows, note=note, support=support)
 
     # ---- prose ---------------------------------------------------------------------------
@@ -370,10 +373,31 @@ def _same_table(a: Row, b: Row) -> bool:
     return a.page.vid == b.page.vid and a.caption == b.caption and a.section == b.section
 
 
-def _fact_key(r: Row) -> tuple:
-    """Rows with the same key state the same fact (same product, tier and qualifiers)."""
-    label = norm(re.sub(r"[^a-z0-9$+ ]", " ", r.label.lower()))
-    return (label, r.quals.terms, r.quals.years, r.quals.amount, r.quals.variants, tuple(sorted(m for m, _ in r.values)))
+def _truest(q: Question, rows: list[Row]) -> dict[int, Row]:
+    """rid -> the truest row among those stating the same fact as it (itself when none is truer)."""
+    groups: dict[tuple, list[Row]] = defaultdict(list)
+    for r in rows:
+        groups[(r.quals.terms, r.quals.variants, r.quals.amount)].append(r)
+    asked = set(q.key_words)
+    words = {r.rid: product_words(r) for r in rows}
+    out = {}
+    for group in groups.values():
+        ranked = sorted(group, key=truth_key, reverse=True)
+        for r in group:
+            out[r.rid] = next(x for x in ranked if x is r or _same_fact(x, r, words, asked))
+    return out
+
+
+def _same_fact(a: Row, b: Row, words: dict, asked: set) -> bool:
+    """Two rows on different pages state the same fact: same term, variant and tier, a shared
+    metric, and the same product (they share a product word, and the words that tell them apart
+    are not what the question asks about)."""
+    if a.page.vid == b.page.vid or not same_tier(a, b):
+        return False
+    wa, wb = words[a.rid], words[b.rid]
+    if not wa & wb or (wa ^ wb) & asked:
+        return False
+    return bool({m for m, _ in a.values} & {m for m, _ in b.values})
 
 
 def _catalogue(q: Question) -> bool:

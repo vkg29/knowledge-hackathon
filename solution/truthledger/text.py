@@ -84,6 +84,28 @@ def month_year_end(s: str) -> Optional[str]:
     return date.fromordinal(nxt.toordinal() - 1).isoformat()
 
 
+_MID_MONTH = re.compile(rf"\bmid[-\s]?({_MONTH_ALT})\.?,?\s+(\d{{4}})\b", re.I)
+
+
+def date_asked(s: str) -> Optional[str]:
+    """The date a question asks about: a full date ('May 15, 2026', '6/1/2026'), else the middle
+    of a month for 'mid-May 2026', else the last day of a named month."""
+    dates = find_dates(s)
+    if dates:
+        return dates[0]
+    m = _MID_MONTH.search(s)
+    if m:
+        return _mk(int(m.group(2)), MONTHS[m.group(1).lower()], 15)
+    return month_year_end(s)
+
+
+def strip_dates(s: str) -> str:
+    """The text with every written date ('May 15, 2026', '6/1/2026', 'May 2026') blanked out."""
+    for pattern in (_DATE_NUMERIC, _DATE_LONG, _DATE_ISO, _MONTH_YEAR):
+        s = pattern.sub(" ", s)
+    return s
+
+
 EFFECTIVE = re.compile(r"effective\s+(?:as\s+of\s+|on\s+|beginning\s+)?(\S+(?:\s+\d{1,2},?\s+\d{4})?)", re.I)
 
 
