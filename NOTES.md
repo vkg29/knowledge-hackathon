@@ -155,12 +155,12 @@ true:
    replaces that answer only when the rules could not read the original: it is a comparison; the rules
    would read a calendar year as a model year; the restatement is a change-over-time question (only when
    the member's own words mention time or change, such as "since May", "did" or "went up") or a rate
-   question while the rules read the original as something else; or the rules found nothing. It must keep what the
-   rules did read (product family, account kinds such as IRA or jumbo, term, balance or loan amount,
-   vehicle model year), it never turns a confident answer into "I don't know" (except a calendar year
-   before the first crawl), and it may overrule a refusal only with a rate-table answer (prose matching
-   is too loose to beat a refusal: "a 7-year CD?" restated as "an 84-month certificate?" would otherwise
-   match a boat-loan sentence). The first unguarded version answered every restatement
+   question while the rules read the original as something else; or the rules found nothing. It must
+   keep what the rules did read (product family, account kinds such as IRA or jumbo, term, balance or
+   loan amount, vehicle model year), it never turns a confident answer into "I don't know" (except a
+   calendar year before the first crawl), and it may overrule a refusal only with a rate-table answer
+   (prose matching is too loose to beat a refusal: "a 7-year CD?" restated as "an 84-month certificate?"
+   would otherwise match a boat-loan sentence). The first unguarded version answered every restatement
    and lowered the public set from 0.920 to 0.796; the gate is why key-on never scores below key-off.
 3. **The ledger answers.** The rules answer the restated question(s) exactly as they answer any other:
    the same identities, winners, timelines and truth rules. A comparison is each product answered on its
@@ -174,9 +174,9 @@ first call), plain JSON instead of the API's structured-output mode (which measu
 call; the reply is validated here instead), no SDK retries, a hard deadline of 1.9 s per question, and
 the AI call runs while the rules answer the original wording rather than after it. A request still
 unanswered after 0.9 s is sent a second time and the first reply wins (a hedged request), which cuts the
-slow tail that decides p95. A check call while loading (untimed) opens the connection
-and switches the AI step off with a clear message if the key or network does not work; five failed calls
-in a row during answering also switch it off for the run. Measured with the key on over all seven sets
+slow tail that decides p95. A check call while loading (untimed) opens the connection and switches the
+AI step off with a clear message if the key or network does not work; five failed calls in a row during
+answering also switch it off for the run. Measured with the key on over all seven sets
 (223 questions, two traced runs): the AI step itself takes 0.83-0.85 s at p50, 1.28-1.39 s at p95, at most
 1.91 s; 2-3% of questions hit the deadline and get the rules' answer. The harness p95 per set is
 1.01-1.92 s.
@@ -250,12 +250,14 @@ public set and v1-v5 is byte-identical to the previous stage.
 | Held-out v6 (slang, typos, indirect phrasing, comparisons, calendar vs model year) | 32 | 0.344 | **0.844-0.875** | 0.08 / 1.05-1.06 s |
 | Kit selftest fixture (with its conflicts gold) | 5 | 1.000 (final 1.000) | 1.000 (final 1.000) | <0.01 / 0.94 s |
 
-Key-on figures are from three full runs of the final code: identical scores on every set except v6,
-where one run lost one question (the model wrote "Regular IRA" for "Roth IRA", the faithfulness check
-rejected the restatement, and the rules refused the original wording rather than answer a different
-tier); the latency range covers all three. Zero stale-trap hits and zero errors on every set, consistency 1.00 on every
-set. Ingest of all five snapshots takes about 17 s without a key and about 22 s with one (a check
-call after each snapshot).
+Key-on figures are from three full runs made before the review fixes to the reply checks and the gate
+(stricter number and faithfulness checks, the AI call overlapped with the rules, no confident answer
+turned into a refusal); those fixes have not been re-measured with a key. The runs gave identical scores
+on every set except v6, where one run lost one question (the model wrote "Regular IRA" for "Roth IRA",
+the faithfulness check rejected the restatement, and the rules refused the original wording rather than
+answer a different tier); the latency range covers all three. Zero stale-trap hits and zero errors on
+every set, consistency 1.00 on every set. Ingest of all five snapshots takes about 17 s without a key
+and about 22 s with one (a check call after each snapshot).
 
 **The kit's judge mode** (`--judge`, Claude Opus 5.5 grading each answer against the full reference,
 public set): accuracy 0.914 with the key on and 0.914 with it off (the gate leaves the public answers

@@ -2,9 +2,10 @@
 
 With AI steps on (`ai.ClaudeHooks`), the model restates a question (`Understanding`) while the rules
 answer the member's own words, and the rules answer the restated question(s); the model never chooses a
-value. A comparison is answered one product at a time by the rules and joined here. A final check keeps an AI-path answer only when
-every number in it is one the rule-built answers stated; otherwise, and whenever the AI step is off,
-fails or times out, the rules answer the original question exactly as they do without a key.
+value. A comparison is answered one product at a time by the rules and joined here. A final check keeps
+an AI-path answer only when every number in it is one the rule-built answers stated; otherwise, and
+whenever the AI step is off, fails or times out, the rules answer the original question exactly as they
+do without a key.
 """
 from __future__ import annotations
 
@@ -73,11 +74,10 @@ class LedgerKnowledge:
         words; None keeps the rules' answer. The restatement is used only where the rules could not read the
         original: it compares products head to head, the rules would read a calendar year as a vehicle model
         year, the restatement shows a question kind (a change over time the member's own words ask about, a
-        rate) the rules' reading missed, or
-        the rules found nothing. It must keep what the rules did read (product family, account kinds, term,
-        balance or loan amount, model year), and it may overrule a refusal only with a rate-table answer: prose
-        matching is too loose to beat a refusal. Only a calendar year before the first crawl turns a confident
-        answer into a refusal."""
+        rate) the rules' reading missed, or the rules found nothing. It must keep what the rules did read
+        (product family, account kinds, term, balance or loan amount, model year), and it may overrule a
+        refusal only with a rate-table answer: prose matching is too loose to beat a refusal. Only a calendar
+        year before the first crawl turns a confident answer into a refusal."""
         if u.compare:
             found = self._understood(u, as_of)
             return found if found is not None and found[0].confident else None
