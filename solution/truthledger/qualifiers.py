@@ -87,6 +87,10 @@ def parse_amount_range(text: str) -> Optional[tuple]:
     t = text.replace("\u2013", "-").replace("\u2014", "-")
     t = _SCALED.sub(lambda m: "$" + format(float(m.group(1).replace(",", "")) * _SCALE[m.group(2).lower()], ".2f"), t)
     vals = money_values(t)
+    if len(vals) == 1:   # '$10,000-24,999': the upper bound is printed without its dollar sign
+        m = re.search(r"\$\s?[\d,]+(?:\.\d+)?\s*-\s*(\d{1,3}(?:,\d{3})+|\d{3,})(?:\.(\d+))?\b", t)
+        if m:
+            vals.append(float(m.group(1).replace(",", "") + ("." + m.group(2) if m.group(2) else "")))
     if not vals:
         bare = re.findall(r"\b(\d{1,3}(?:,\d{3})+|\d{4,})\b(?!\s*model)", t)
         vals = [float(v.replace(",", "")) for v in bare if not re.fullmatch(r"(19|20)\d\d", v)]

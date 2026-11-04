@@ -8,6 +8,7 @@ candidate rows; deciding which of them is true is left to `rules.py`.
 from __future__ import annotations
 
 import math
+import re
 from collections import defaultdict
 
 from .vocab import STOPWORDS, tokens, with_prefixes
@@ -32,10 +33,15 @@ def row_document(row) -> dict[str, float]:
     for t in dict.fromkeys(with_prefixes([t for t in tokens(ctx) if t not in STOPWORDS])):
         doc[t] = doc.get(t, 0.0) + CONTEXT_WEIGHT
     faq = row.section.rsplit(" > ", 1)[-1]
-    if faq.endswith("?"):   # an FAQ answer is findable by its question, which is how members ask
+    # An FAQ answer is findable by its question, which is how members ask; so is a passage under a
+    # heading phrased like one ("WHO CAN JOIN: You're Eligible to Join If ...").
+    if faq.endswith("?") or (row.kind == "text" and QUESTION_HEADING.search(faq)):
         for t in dict.fromkeys(with_prefixes([t for t in tokens(faq) if t not in STOPWORDS])):
             doc[t] = doc.get(t, 0.0) + FAQ_WEIGHT - CONTEXT_WEIGHT
     return doc
+
+
+QUESTION_HEADING = re.compile(r"^(who|what|when|where|why|how)\b|\b(eligible|eligibility|requirements?)\b", re.I)
 
 
 class LexicalIndex:

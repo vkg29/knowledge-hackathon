@@ -32,6 +32,10 @@ price pay paid pays charge charges number amount value information info detail d
 earn earns earning balance balances between tier tiers term terms month months year years minimum standard
 highest lowest best top maximum max least cheapest
 finance financed financing borrow borrowing borrowed charged carry carries come comes get getting
+change changed changes changing happen happened since before after between recent recently increase increased
+decrease decreased went gone go goes rise rose risen raise raised drop dropped lower lowered fell move moved
+latest previous previously prior ago earlier past history trend still offered available offering up down
+buy buying bought
 """.split())
 
 SYNONYMS = {
@@ -54,6 +58,8 @@ SYNONYMS = {
     "branches": ["branch"], "branch": ["office", "location"],
     "phone": ["call"], "call": ["phone"],
     "join": ["member", "membership"], "membership": ["member", "join"], "eligible": ["membership", "join"],
+    "member": ["membership", "join"], "become": ["join"], "requirement": ["eligible"], "requirements": ["eligible"],
+    "qualify": ["eligible"], "eligibility": ["eligible", "join"],
     "student": ["school", "college"], "university": ["college", "school", "student"],
     "employee": ["employees"], "employees": ["employee"],
     "wallet": ["pay"], "mobile": ["app", "digital"], "digital": ["mobile", "online"],
