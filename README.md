@@ -28,6 +28,7 @@ python harness/run_eval.py --submission solution --eval eval/heldout_v3_eval.jso
 python harness/run_eval.py --submission solution --eval eval/heldout_v4_eval.jsonl   # set 4: what changed, relative dates, renamed tiers
 python harness/run_eval.py --submission solution --eval eval/heldout_v5_eval.jsonl   # set 5: fresh rewordings
 python harness/run_eval.py --submission solution --eval eval/heldout_v6_eval.jsonl   # set 6: slang, typos, comparisons, calendar vs model year
+python harness/run_eval.py --submission solution --eval eval/heldout_v7_eval.jsonl   # set 7: newest statements, official sources, service questions
 python -m unittest discover -s solution/tests -v                                     # unit tests (no network, no key)
 ```
 
@@ -37,7 +38,7 @@ seconds, tokens) for inspection.
 
 The first eval run unpacks the zips into `snapshots/` (ignored by git). Add
 `--conflicts-gold <file>` to score `conflicts()` against a gold list, for example
-`--conflicts-gold eval/conflicts_guess.json` (our 9-item guess; the kit ships no gold for the real data),
+`--conflicts-gold eval/conflicts_guess.json` (our 14-item guess; the kit ships no gold for the real data),
 and run the kit's own fixture with
 `python harness/run_eval.py --submission solution --snapshots harness/selftest/snapshots --eval harness/selftest/eval.jsonl --conflicts-gold harness/selftest/conflicts_gold.json`.
 
@@ -49,7 +50,7 @@ use a fake client); the eval sets need the snapshots, so they run locally only.
 ```
 solution/            the submission (solution.py, truthledger/ package, tests/, requirements.txt)
 harness/             the kit's scorer and contract (unchanged)
-eval/                public_eval.jsonl (kit) + heldout_eval.jsonl, heldout_v2..v6_eval.jsonl and conflicts_guess.json (ours)
+eval/                public_eval.jsonl (kit) + heldout_eval.jsonl, heldout_v2..v7_eval.jsonl and conflicts_guess.json (ours)
 starter/             the kit's naive starter (unchanged)
 snapshots/README.md  what each snapshot is (the snapshot folders themselves are not committed)
 ```

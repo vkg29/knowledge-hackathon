@@ -23,6 +23,7 @@ mid early late around approximately roughly exactly over under via
 operate operates run runs maintain maintains their them they its his her us ours theirs
 publish published post posted total overall currently anymore
 use using used go going make made take each every other another more most still
+page pages say says said claim claims cant cannot dont doesnt wont isnt
 """.split())
 
 # Domain words that say *what kind* of answer is wanted but not *which product*.
@@ -57,7 +58,7 @@ SYNONYMS = {
     "buyer": ["homebuyer"], "buyers": ["homebuyer"], "homebuyer": ["buyer"],
     "address": ["located", "location"], "location": ["branch", "address"], "locations": ["branch", "address"],
     "branches": ["branch"], "branch": ["office", "location"],
-    "phone": ["call"], "call": ["phone"],
+    "phone": ["call"], "call": ["phone"], "log": ["login"], "login": ["log"], "signin": ["login"],
     "join": ["member", "membership"], "membership": ["member", "join"], "eligible": ["membership", "join"],
     "member": ["membership", "join"], "become": ["join"], "requirement": ["eligible"], "requirements": ["eligible"],
     "qualify": ["eligible"], "eligibility": ["eligible", "join"],

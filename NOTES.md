@@ -85,12 +85,22 @@ within a run (see "AI question understanding").
    a press release's byline date); then a copy the crawl itself saw beats one carried forward from an
    older crawl; then, among equally official and dated copies, the page about that product family
    (the home-loans page for a mortgage row) is cited before a page that embeds the same table.
-5. **Repeated statements.** The same sentence printed with different figures (press-release
-   boilerplate such as "It has over 600 employees and N branch office locations", or "the fifth time
-   Forbes recognized Dupaco") is one fact; the newest dated copy wins. The same statement about
-   *different years* ("294 employees used VTO in 2023", "256 ... in 2024") is separate facts: the year
-   is a qualifier, and a question about a year the site does not cover ("last year" = 2025) gets each
-   year it does state, newest first.
+5. **Repeated statements: the newest dated statement wins.** The same claim printed by several dated
+   pages is one fact, and its newest dated copy states it: press-release boilerplate such as "It has
+   over 600 employees and N branch office locations", a running count written as an ordinal word ("It
+   was the fourth time Forbes recognized Dupaco" in 2023, "the fifth time" in 2024; ordinals count as
+   figures, so a question quoting the old "fourth" still gets "fifth"), and a claim reworded over the
+   years ("For a third year in a row, Forbes named Dupaco ..." vs "Forbes again named Dupaco ...": one
+   wording restating the other with a few words added is the same claim). When every copy gives the same
+   figures, the best-matching copy stands unless a copy is more official or has a newer byline, so the
+   answer's next sentences are the newest too (the May 2026 release's "179,000 members", not April's
+   "181,000"); undated official pages keep the best match. The same statement about *different years*
+   ("294 employees used VTO in 2023", "256 ... in 2024") is separate facts: the year is a qualifier, and
+   a question about a year the site does not cover ("last year" = 2025) gets each year it does state,
+   newest first. A "what ..." question that names something (Forbes, Newsweek) is answered from the lead
+   paragraph of the newest article whose *title* names it, since a news story's first paragraph says what
+   the news is (pages titled with the name asked about also rank higher); a question that wants a figure,
+   an address or a phone number keeps the sentence that states it.
 6. **Say so when the site does not.** If no row covers the question (its names, terms and subject
    words), the answer is a digit-free "that isn't listed ... please contact Dupaco" with
    `confident=False`, instead of the nearest guess.
@@ -124,6 +134,26 @@ within a run (see "AI question understanding").
   charter area") is joined with the sentence on the same page that names the places ("You can find us
   in Iowa, Illinois and Wisconsin"). Membership-eligibility questions go straight to the section of the
   site that says who may join, read from its first line.
+- **Service questions get Dupaco's own instructions.** A request about the member's own account (update
+  my address, phone or contact information, a lost or stolen card, trouble signing in, a question about
+  my account) is answered from the official page whose title or main heading names the task in the
+  member's own words ("I can't log in to Shine" -> "Shine Login Help"), else from the lead of the site's
+  contact page ("Have a specific account question? Use the Contact Us tab inside Shine ... call us
+  immediately at 800-373-7600"); the phone number that page states is added when the passage does not
+  give it. Other "how do I ..." questions also try the page titled with the task before general passage
+  matching. One title word alone does not make a page about the task unless it is the whole task.
+- **The most official page that states the value is cited first.** Sources list, in order, more official
+  pages that state the same value (a routing number, phone number or address found on other live pages;
+  the same weekday schedule printed on an official page), then the answering row's page, then every other
+  page that states it, one citation per page, five at most. A routing-number answer cites the contact and
+  cash-management pages before a blog post; general lobby hours cite the contact page that prints
+  "Monday-Friday, 8:30 a.m.-5:30 p.m." before the branch press releases they are summarised from.
+- **Links.** "What link shows the certificate rates?" (or "where on the website ...", "which page ...")
+  is answered with the official product page whose rate table lists the facts asked about, at the in-page
+  rates section the site's own links point to ("/personal/savings-account#rates"), citing that page. Other
+  link questions vote over the links on matching passages; a link inside the site to a page the newest
+  crawl no longer has (an old URL in an old blog post) and a link to a press release or blog post count
+  half, and a printed address used as link text ("www.dupaco.com/newsroom/...") earns no label bonus.
 
 `conflicts()` uses the same identities and timelines: **one entry per fact identity** whose copies
 disagree, on two pages at once or across crawls (a rate that changed over time is listed with its
@@ -131,9 +161,29 @@ winner). The values are only that identity's own figures, newest first; the reso
 value-set the rules pick for the newest snapshot (for example "3.86% dividend rate / 3.90% APY"); the
 reason names the rule that decided and the dated history of the winning figure. A copy that only
 repeats part of another ("15.50%" of "15.50% - 21.00%") is not a contradiction. Identical histories
-under twin products (a special and its IRA copy) are reported once. Boilerplate statements repeated on
-five or more dated pages (or ordinal counts like "fourth"/"fifth" time) with different figures are
-listed too. On the full data it reports 39 entries.
+under twin products (a special and its IRA or business copy, the same figures in any order) are reported
+once, under the plainest product. Boilerplate statements repeated on five or more dated pages (or ordinal
+counts like "fourth"/"fifth" time) with different figures are listed too, and one claim printed in
+several wordings over the years ("Chartered in 1948, membership totals more than 141,000 ..." and
+"Founded in 1948 by ten ... employees, membership has grown to more than 179,000 ...") is one entry
+settled by its newest dated copy. Contradictions the newest crawl still shows (a calculator, promotion or
+guidance page beside the current rate sheet) are listed first, newest model years first, then changes
+over time.
+
+**Review of the list (this stage).** Every entry was checked against the snapshots. It had 39 entries and
+now has 35, all with one resolution equal to the current winner. Removed as duplicates: the "Special
+Business Certificates" 17-month special and jumbo special (the same 3.85 -> 3.95 -> 4.10% and 3.95 ->
+4.05 -> 4.20% histories as the personal specials, listed in a different order) and two extra wordings of
+the membership-and-assets boilerplate (one of them resolved to a 2021 figure, 141,000 members). Kept
+after checking: the 21 rate-table entries for auto and home loans (each a real change between crawls,
+with stale copies still online: 6.037% on the homebuying-guidance page, 5.34% and 5.54% on a calculator
+and the switch-and-earn promotion); 1st Rate Checking 3.00% -> 2.50%; the business Share Savings tier
+that printed a 0.20% dividend rate beside a 0.15% APY until the August crawl corrected it; the 12-month
+certificate, the 10-month specials, the 17-month specials and the Traditional IRA 25-month special; and
+five repeated statements (branch count 22, counties 118, membership 179,000 with $3.6 billion in
+assets, the eighth consecutive participation dividend, the fifth Forbes recognition). No tier, rate-vs-
+APY or other-product pair is listed (the 0.30%/0.35%/0.40% figures the practice questions trap on are
+Investor's Choice and HSA tiers, not Share Savings, and are correctly not conflicts).
 
 ## AI question understanding (key on)
 
@@ -195,11 +245,12 @@ million input / output tokens.
 
 **Stage 3 (AI reading at load) was not added.** The questions still missed with the key on are not
 table-reading problems: they are prose questions whose right sentence the lexical matcher does not
-rank first (the main phone number, mobile wallets, the Platinum Visa late fee, contact-information
-updates, Forbes recognition), plus two the model restates too loosely ("helok apr?" loses the product
-word, so the refusal stands; "a checking account that actually pays interest" becomes a generic
-checking question). Reading every page with a model at load would mean about 1,500 calls per ingest
-against the graders' rate limits and would not change how passages are ranked.
+rank first (the main phone number, mobile wallets, the Platinum Visa late fee), plus two the model
+restates too loosely ("helok apr?" sometimes loses the product word, so the refusal stands; "a checking
+account that actually pays interest" becomes a generic checking question). Reading every page with a
+model at load would mean about 1,500 calls per ingest against the graders' rate limits and would not
+change how passages are ranked. The polish stage instead fixed the contact-information and Forbes
+questions with the general rules above (service questions, newest dated statement, titled articles).
 
 ## Architecture
 
@@ -235,38 +286,57 @@ Run from the repository root after copying the kit's `snapshots_zip/` there (see
 numbers below are accuracy (`qa_score`) from the kit's own `harness/run_eval.py`; no conflicts gold
 ships with the kit, so `final_score` equals accuracy when speed and consistency are 1.0.
 
-The acceptance bar for the AI step: with the key on, beat key-off on the public set and the held-out
-reworded sets without lowering any set, with zero stale numbers. With the key off, every answer on the
-public set and v1-v5 is byte-identical to the previous stage.
+The acceptance bar for each stage: beat the previous scores without lowering any set, with zero stale
+numbers, with the key on and off. The polish stage (newest dated statement, service questions, official
+page cited first, rate links, the conflicts review) met it:
 
-| Question set | Questions | Key off (rules only) | Key on (AI understanding) | p95 latency off / on |
+| Question set | Questions | Key off before -> now | Key on before -> now | p95 latency off / on (now) |
 |---|---|---|---|---|
-| Public practice set (kit) | 40 | 0.920 | 0.920 | 0.04 / 1.64 s |
-| Held-out v1 (reworded + new) | 40 | 0.967 | 0.967 | 0.05 / 1.58 s |
-| Held-out v2 (rewordings of the public questions) | 25 | 1.000 | 1.000 | 0.04 / 1.71 s |
-| Held-out v3 (new phrasings and facts) | 25 | 0.972 | 0.972 | 0.02 / 1.91 s |
-| Held-out v4 (what changed, relative dates, renamed tiers, IRA / money market) | 34 | 1.000 | 1.000 | 0.07 / 1.23 s |
-| Held-out v5 (fresh rewordings) | 27 | 1.000 | 1.000 | 0.05 / 1.78 s |
-| Held-out v6 (slang, typos, indirect phrasing, comparisons, calendar vs model year) | 32 | 0.344 | **0.875** | 0.08 / 0.97 s |
+| Public practice set (kit) | 40 | 0.920 -> **0.969** | 0.920 -> **0.969** | 0.16 / 0.93 s |
+| Held-out v1 (reworded + new) | 40 | 0.967 -> 0.967 | 0.967 -> 0.967 | 0.23 / 1.46 s |
+| Held-out v2 (rewordings of the public questions) | 25 | 1.000 -> 1.000 | 1.000 -> 1.000 | 0.14 / 1.05 s |
+| Held-out v3 (new phrasings and facts) | 25 | 0.972 -> 0.972 | 0.972 -> 0.972 | 0.08 / 1.11 s |
+| Held-out v4 (what changed, relative dates, renamed tiers, IRA / money market) | 34 | 1.000 -> 1.000 | 1.000 -> 1.000 | 0.16 / 0.91 s |
+| Held-out v5 (fresh rewordings) | 27 | 1.000 -> 1.000 | 1.000 -> 1.000 | 0.18 / 0.89 s |
+| Held-out v6 (slang, typos, indirect phrasing, comparisons, calendar vs model year) | 32 | 0.344 -> 0.344 | 0.875 -> 0.875 | 0.23 / 1.03 s |
+| Held-out v7 (prose facts, official sources, service questions, conflicts; written for the polish) | 34 | 0.546 -> **0.849** | 0.546 -> **0.849** | 0.11 / 0.96 s |
 | Kit selftest fixture (with its conflicts gold) | 5 | 1.000 (final 1.000) | 1.000 (final 1.000) | <0.01 / 0.94 s |
 
-Key-on figures are from a full run on the final code (after the review fixes to the reply checks and
-the gate: stricter number and faithfulness checks, the AI call overlapped with the rules, no confident
-answer turned into a refusal); an earlier run after the review fixes gave the same scores. With the key
-on, the harness p50 is 0.88-0.91 s and the slowest answer 1.01-1.91 s per set. Three earlier runs,
-before those fixes, gave identical scores on every set except v6 (0.844-0.875), where one run lost one
-question (the model wrote "Regular IRA" for "Roth IRA", the faithfulness check rejected the
-restatement, and the rules refused the original wording rather than answer a different tier). Zero
-stale-trap hits and zero errors on every set, consistency 1.00 on every set. Ingest of all five
-snapshots takes about 17 s without a key and about 21 s with one (a check call after each snapshot).
+Zero stale-trap hits and zero errors on every set; consistency 1.00 on every set but v6 key-off (0.83,
+unchanged) and v7 (0.98: of its two routing-number wordings, the ABA-and-ACH one is refused, see Known
+gaps). Key-off latencies come from parallel runs of all sets (a sequential public run: p95 0.07 s,
+slowest 0.09 s); with the key on, p50 is 0.77-0.83 s and the slowest answer 0.92-1.92 s per set. On the public set the gain
+splits into the Forbes question (+0.023, newest dated statement and titled article), the
+contact-information question (+0.016, service questions) and the source bonus on three correct answers
+(+0.011: the routing number now cites the cash-management page, general lobby hours the contact page, and
+the certificate-rates link is the official "/personal/savings-account#rates"); the one remaining public
+miss is the item with nothing to check. **AI step variance on v6:** key-on v6 scores 0.844 or 0.875 from
+run to run on both the previous and the new code (four runs of the new code: 0.875, 0.875, 0.875, 0.844;
+two of the previous code: 0.844, 0.875), always on "helok apr?", whose restatement sometimes drops the
+product word. Key-off answers on v1-v6 that changed text all still score 1.0: the branch-count and
+counties boilerplate is now read from the newest (May 2026) release (for counties the next sentence now
+says 179,000 members instead of April's 181,000); "Which number do I call to reach Dupaco member service?" is answered from the
+contact page's lead instead of an alerts-page passage; "How many times has Forbes recognized Dupaco?"
+keeps its answer. Other changes are citations only.
 
-**The kit's judge mode** (`--judge`, Claude Opus 5.5 grading each answer against the full reference,
+**v7 was written for this stage before any of its code** (`eval/heldout_v7_eval.jsonl`: ten prose facts
+whose newest dated statement answers, nine questions graded on the official source via
+`expected_sources`, eight how-to and service questions, six conflict-flavoured questions and one the site
+does not answer) and run blind on the merged previous version: **0.546 with the key off and 0.546 with
+it on** (one crash: a heading row won the prose ranking and the "earliest mention on the page" step had
+nothing to pick; headings are no longer answer candidates). The v7 numbers after that are not blind.
+
+The AI step's own measurements (latency, cost and stability in "AI question understanding" above) are
+from the previous stage; this stage did not change the AI code. Ingest of all five snapshots takes about 17 s without a key and about 21 s with one
+(a check call after each snapshot).
+
+**The kit's judge mode** (previous stage; `--judge`, Claude Opus 5.5 grading each answer against the full reference,
 public set): accuracy 0.914 with the key on and 0.914 with it off (the gate leaves the public answers
 unchanged). In judge mode the kit's runner times the judge's own call inside each question's latency,
 so its p95 (4.2 s) is not the system's latency; final score 0.839 with the key on, 0.847 off (speed is
 the only difference), with the 9-item conflicts guess list.
 
-**v6 was written for this stage before any AI code** and run blind: **0.3125 with the key off** (no
+**v6 was written for the AI stage before any AI code** and run blind: **0.3125 with the key off** (no
 trap hits; slang and typos refused, comparisons answered on one side or refused, "the auto loan rate in
 2025" answered with today's model-year rates) and **0.859 with the key on** on the first, ungated
 version. The key-off v6 score is now 0.344 because the generic "before the first crawl" refusal no
@@ -285,31 +355,39 @@ eligibility route) and were kept only when they lowered no other set, but the la
 numbers are no longer blind. Expect the hidden set to land between the blind first runs and the
 public score.
 
-The conflicts pillar cannot be scored locally against the real gold. Against `eval/conflicts_guess.json`,
-a 9-item guess list written from the practice questions (60- and 84-month auto, 30-year mortgage,
-branch count, Forbes, 10-month jumbo special, 12-month certificate, 17-month special, 1st Rate
-Checking), all 9 are matched and 8 have the right winner; the miss is the scorer pairing the 84-month
-guess with the 72-month entry through one shared figure plus a topic word. Precision against the real
-gold is unknown (39 entries submitted).
+The conflicts pillar cannot be scored locally against the real gold. `eval/conflicts_guess.json` is a
+guess list written from the practice questions (60- and 84-month auto, 30-year mortgage, branch count,
+Forbes, 10-month jumbo special, 12-month certificate, 17-month special, 1st Rate Checking), extended in this
+stage with five contradictions verified in the snapshots (counties 112 -> 118, membership 181,000 ->
+179,000, the seventh -> eighth participation dividend, the 10-month special 3.80% -> 3.90%, the business
+Share Savings 0.20%/0.15% misprint). Scored with the kit's `score_conflicts`: on the original 9 items the
+pillar goes from 0.529 (39 submitted, 9 matched, 8 right winners) to 0.586 (35 submitted, 9 matched, 9
+right winners); on the 14 items from 0.648 to 0.700 (all matched, all right winners). The winner fixed
+is the scorer pairing the 84-month guess with a 72-month entry through one shared figure; the newest
+model years are now listed first. Precision against the real gold is unknown.
 
 ## Known gaps
 
 - **Free-text paraphrase in prose questions.** Matching is lexical plus a thesaurus, and the AI step
-  does not change prose answers the rules already give (see the gate). "What recognition has Dupaco
-  received from Forbes?" lands on press-release boilerplate instead of "the fifth time Forbes recognized
-  Dupaco" (the reworded "How many times has Forbes recognized Dupaco?" is answered correctly); "How can
-  I update my contact information?", "What is Dupaco's main phone number?", "Which digital wallets can
-  I load my cards into?" and the Platinum Visa late fee (inside a long fine-print sentence) return a
-  related passage instead, with or without the key.
+  does not change prose answers the rules already give (see the gate). "What is Dupaco's main phone
+  number?", "Which digital wallets can I load my cards into?" and the Platinum Visa late fee (inside a long
+  fine-print sentence) return a related passage instead, with or without the key. From v7: "How many
+  members does Dupaco have?" and "What are Dupaco's total assets?" do not reach the boilerplate sentence
+  that states them; "How much did Dupaco share in its most recent participation dividend?" is read as a
+  rate question and refused; "What ABA number do I give for ACH payments?" is refused because "ACH" is
+  read as a name that must appear on the answering page's title, URL or passage; "How do I become a Dupaco
+  member online?" gives a promotion's link instead of join.dupaco.com (the plain "How do I join Dupaco
+  online?" is right).
 - **Without a key**, slang, typos, comparisons and a calendar year next to a vehicle word ("the auto loan
   rate in 2025" is read as a model year) are handled as in the previous stage; with the key, the AI step
   covers them (v6: 0.344 off, 0.875 on).
 - **AI step variance.** Across separate runs the model may word a restatement differently; within a run
   every answer is cached. A question whose AI call misses the 1.9 s deadline (about 2% measured) gets the
   rules' answer to the original wording.
-- **Source credit.** Some correct answers cite a page other than the one the graders list (the
-  routing number from the contact page rather than the cash-management page; general lobby hours
-  from branch press releases rather than the home page).
+- **Source credit.** Rate answers cite pages whose rate *tables* hold the winning value; a product page
+  that states the value only in prose (the Platinum Visa APR in the credit-cards page's fine print) is not
+  added, so "What purchase APR does the Platinum Visa carry?" cites the rate sheet but not
+  /personal/credit-cards.
 - **List answers** stop at 12 rows, and a change history at 8 lines; a "what changed with mortgage
   rates since May?" answer lists every purchase tier's full history, which is complete but long.
 - **"As of" answers do not add the jumbo sibling** (see above), so a judge grading against a reference
@@ -318,7 +396,11 @@ gold is unknown (39 entries submitted).
   sentence with a footnote digit), and a few blog tables get junk identity cards; they hold no rate
   figures that compete with official ones.
 - **Branch hours** exist only inside press releases about individual branches, so general hours are
-  summarised from those; a branch with no published hours is refused rather than guessed.
+  summarised from those (and cite the contact page, which prints the same weekday hours); a branch with no
+  published hours is refused rather than guessed.
+- **Service questions** go to the contact page's lead when no official page is titled with the task, so
+  "How do I change my address?" is answered with how to reach Dupaco (Shine's Contact Us tab, 800-373-7600),
+  which is what the site says, not with a self-service form.
 - The practice item "Get me the rate for the certificate of accounts" has no `must_include`, so it
   scores 0 for any answer under the kit's scorer (it lists the personal certificate rates).
 

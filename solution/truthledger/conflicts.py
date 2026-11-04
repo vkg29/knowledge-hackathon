@@ -31,19 +31,21 @@ def find_conflicts(ledger, contract) -> list:
     if not ledger.snapshots:
         return []
     ranked = _table_conflicts(ledger, contract) + _statement_conflicts(ledger, contract)
-    return _merge_duplicates(sorted(ranked, key=lambda item: (item[0], item[2].topic)))
+    return _merge_duplicates(sorted(ranked, key=lambda item: (item[0], item[3].topic)))
 
 
 def _merge_duplicates(ranked: list) -> list:
-    """The same change shown under several products (a special and its IRA twins: same family, term
-    and tier, same values) is one contradiction; keep the plainest product's entry."""
+    """The same change shown under several products (a special and its IRA or business twins: same family,
+    term and tier, the same figures) is one contradiction; keep the plainest product's entry. Contradictions
+    the newest crawl still shows (a stale copy beside the current one) are listed before changes over time,
+    and the newest model years before older ones."""
     seen, out = set(), []
-    for _, tier, c in ranked:
-        key = (tier, tuple(c.values))
+    for _, tier, order, c in ranked:
+        key = (tier, frozenset(c.values))
         if key not in seen:
             seen.add(key)
-            out.append(c)
-    return sorted(out, key=lambda c: c.topic)
+            out.append((order, c.topic, c))
+    return [c for _, _, c in sorted(out, key=lambda x: x[:2])]
 
 
 # ---- rate tables ---------------------------------------------------------------------------
@@ -85,7 +87,9 @@ def _table_conflicts(ledger, c) -> list:
             reason += "; over time the winning figure was " + ", then ".join(dict.fromkeys(changes))
         if not current:
             reason += "; the fact is no longer listed in the newest crawl, so this was its last stated value"
-        out.append(((len(key.kinds), len(_topic(winner))), ("table", key.family, key.terms, key.tier),
+        live = any(r.rid in {x.rid for x in tl.members(latest).get(key, [])} for r in losers)
+        newest_year = winner.quals.years[1] if winner.quals.years else 0
+        out.append(((len(key.kinds), len(_topic(winner))), ("table", key.family, key.terms, key.tier), (not live, -newest_year),
                     c.Conflict(topic=_topic(winner), values=values, sources=sources, resolution=value_text(winner, full=True),
                                reason=reason + ". Tiers and rate-vs-APY columns are kept as separate facts.")))
     return out
@@ -130,7 +134,7 @@ def _statement_conflicts(ledger, c) -> list:
             continue
         if _COUNTS.search(row.text) and len(row.text) < 300:
             groups[_template(row.text)].append(row)
-    out = []
+    found = []   # (template words, rows, rid -> the figures that differ between its copies)
     for tmpl, rows in groups.items():
         if len({r.page.url for r in rows}) < 2 or sum(t == "0" for t in tmpl) == 0 or len(tmpl) < 4:
             continue
@@ -146,21 +150,40 @@ def _statement_conflicts(ledger, c) -> list:
         ordinal = any(_ORDINAL.match(k[i]) for k in by_value for i in differing)
         if not ordinal and (len({r.page.url for r in rows}) < _BOILERPLATE_PAGES or any(_EVENT.search(r.text) for r in rows)):
             continue
+        found.append((set(tmpl), list(rows), {r.rid: " / ".join(_counts(r.text)[i] for i in differing) for r in rows}))
+    # One claim printed in several wordings over the years ("Chartered in 1948, membership totals more than
+    # 141,000 ..." and "Founded in 1948 by ten ... employees, membership has grown to more than 179,000 ...")
+    # is one contradiction, settled by its newest dated copy.
+    claims: list = []
+    for tmpl, rows, value_of in found:
+        same = next((cl for cl in claims if _same_claim(cl[0], tmpl)), None)
+        if same is None:
+            claims.append((tmpl, rows, value_of))
+        else:
+            same[0].update(tmpl)
+            same[1].extend(rows)
+            same[2].update(value_of)
+    out = []
+    for _tmpl, rows, value_of in claims:
         winner = max(rows, key=truth_key)
-        loser = max((r for r in rows if _counts(r.text) != _counts(winner.text)), key=truth_key)
-        values = []
-        for key in sorted(by_value, key=lambda k: max(truth_key(r) for r in by_value[k]), reverse=True):
-            v = " / ".join(key[i] for i in differing)
-            if v not in values:
-                values.append(v)
-        sources = []
-        for key in by_value:
-            r = max(by_value[key], key=truth_key)
-            sources.append(c.Source(url=r.page.url, snapshot_id=ledger.snapshots[r.page.first_snapshot].snapshot_id, quote=r.text[:200]))
-        out.append(((0, len(winner.text)), ("statement",),
+        loser = max((r for r in rows if value_of[r.rid] != value_of[winner.rid]), key=truth_key)
+        values = list(dict.fromkeys(value_of[r.rid] for r in sorted(rows, key=truth_key, reverse=True)))
+        sources, shown = [], set()
+        for r in sorted(rows, key=truth_key, reverse=True):
+            if value_of[r.rid] not in shown:
+                shown.add(value_of[r.rid])
+                sources.append(c.Source(url=r.page.url, snapshot_id=ledger.snapshots[r.page.first_snapshot].snapshot_id,
+                                        quote=r.text[:200]))
+        out.append(((0, len(winner.text)), ("statement",), (False, 0),
                     c.Conflict(topic=winner.text[:120], values=values, sources=sources[:6], resolution=winner.text,
-                               reason=explain(winner, loser))))
+                               reason=explain(winner, loser) + "; the newest dated statement of a repeated claim is the current one")))
     return out
+
+
+def _same_claim(a: set, b: set) -> bool:
+    """Two wordings of one repeated claim: most of the shorter wording's words are in the longer one."""
+    shared = len(a & b)
+    return shared / len(a | b) >= 0.6 or (min(len(a), len(b)) >= 5 and shared / min(len(a), len(b)) >= 0.75)
 
 
 def _differing_numbers(keys: list[tuple]) -> list[int]:

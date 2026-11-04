@@ -190,6 +190,28 @@ def has_digit(s: str) -> bool:
     return any(ch.isdigit() for ch in s)
 
 
+# A count can be written as an ordinal word: "the fifth time Forbes recognized Dupaco", "the eighth
+# consecutive year". Such words are figures of a statement just like digits.
+ORDINAL_WORDS = ("first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth",
+                 "eleventh", "twelfth")
+COUNT = re.compile(r"\b(?:" + "|".join(ORDINAL_WORDS) + r")\b|\d[\d,]*(?:\.\d+)?", re.I)
+
+
+def counts(s: str) -> list[str]:
+    """The figures a statement gives, digits and ordinal words alike, in order ('fifth', '22', '3.6')."""
+    return [m.group(0).lower() for m in COUNT.finditer(s)]
+
+
+_ORDINAL_COUNT = re.compile(r"\b(?:" + "|".join(ORDINAL_WORDS) + r")\s+(?:consecutive\s+|straight\s+|annual\s+)?"
+                            r"(?:time|year|award|honor|recognition)s?\b", re.I)
+
+
+def states_count(s: str) -> bool:
+    """Does the text state a figure: a digit, or an ordinal count ('the eighth consecutive year', 'the fifth
+    time'), not an ordinal used as a name ('first-time homebuyer')?"""
+    return has_digit(s) or bool(_ORDINAL_COUNT.search(s))
+
+
 _MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
                 "November", "December"]
 

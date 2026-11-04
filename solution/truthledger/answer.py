@@ -11,18 +11,19 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
+from urllib.parse import urlparse
 
 from .catalogue import family_matches
 from .identity import FactKey
 from .ledger import Ledger, Row
 from .matcher import QUESTION_HEADING, LexicalIndex, row_document
-from .pages import AUTHORITY
+from .pages import AUTHORITY, canonical_url, page_kind
 from .qualifiers import amount_match, parse_terms, terms_match, years_match
 from .query import Question, parse
 from .rules import explain, is_live, truth_key
-from .text import has_digit, long_date, norm
+from .text import COUNT, counts, long_date, norm, states_count
 from .timeline import figures, value_text
 from .vocab import STOPWORDS, expand, stem, tokens, with_prefixes
 
@@ -51,6 +52,7 @@ class Result:
     confident: bool = True
     note: Optional[str] = None
     support: list = field(default_factory=list)   # other pages that state the same winning value
+    first: list = field(default_factory=list)     # more official pages stating that value, cited ahead of `rows`
 
 
 class Answerer:
@@ -62,6 +64,7 @@ class Answerer:
         self._view_ids: dict[int, frozenset] = {}
         self._page_cache: dict[int, frozenset] = {}
         self.product_vocab = frozenset(w for key in ledger.identities().values() for w in key.product)
+        self._official: dict[int, dict] = {}
 
     # ---- entry point ---------------------------------------------------------------------
     def answer(self, question: str, as_of: Optional[str] = None, calendar_year: Optional[int] = None,
@@ -91,6 +94,10 @@ class Answerer:
             res = self._eligibility(q, k, on_date)
             if res is not None:
                 return res, k
+        if _SERVICE_Q.search(q.raw) and not (q.wants_url or q.hours or q.rate_intent or q.change):
+            res = self._service(q, k, on_date)
+            if res is not None:
+                return res, k
         if q.wants_url:
             res = self._url(q, k, on_date)
         elif q.hours:
@@ -99,6 +106,8 @@ class Answerer:
             res = self._rate(q, k, on_date, siblings) or self._prose(q, k, on_date, need_percent=True)
         elif q.rate_implied:   # "what does it pay?" still needs a stated rate, not any passage about the product
             res = self._rate(q, k, on_date, siblings) or self._prose(q, k, on_date, need_percent=q.wants_rate)
+        elif q.wants_action:
+            res = self._task(q, k, on_date) or self._prose(q, k, on_date)
         else:
             res = self._prose(q, k, on_date)
         return (res or Result(REFUSAL, confident=False)), k
@@ -349,11 +358,11 @@ class Answerer:
         allowed = frozenset(rid for rid in view if rows[rid].kind in ("text", "hours"))
         scored = []
         for s, row in self._scored(q, allowed):
-            if not is_live(row, on_date) or not _names_account_kind(q, row):
-                continue
+            if not is_live(row, on_date) or not _names_account_kind(q, row) or _is_header(row.text):
+                continue   # a heading ('ONE PAGE PLAN', 'Fees:') names a topic; it states nothing
             if need_percent and not _RATE_VALUE.search(row.text):
                 continue
-            if q.wants_number and not has_digit(row.text):
+            if q.wants_number and not states_count(row.text):
                 continue
             if q.answer_type and not _ANSWER_SHAPES[q.answer_type].search(row.text):
                 continue
@@ -363,6 +372,8 @@ class Answerer:
                 s *= 1.5   # "Routing Number: 273974581" states exactly what was asked
             if q.wants_action and any(set(tokens(a)) & set(q.words) for a, u in row.links if u.startswith("http")):
                 s *= 1.3   # a passage whose button does what the member asked ("Join Dupaco")
+            if q.names and self._titled(q, row):
+                s *= 1.5   # a page titled with the name asked about ('Forbes ranks Dupaco ...') is about it
             scored.append((s * _PROSE_WEIGHT[row.authority], row))
         if not scored:
             return None
@@ -379,10 +390,11 @@ class Answerer:
         # A matched name (place, brand, program) already grounds the topic, so less overlap is needed.
         if not self._covered(q, best, 0.35 if q.names else (0.4 if q.answer_type else 0.5)):
             return None
-        # Same statement printed with different numbers (e.g. press-release boilerplate):
-        # the truest, newest copy wins.
+        # The same statement printed by several pages or crawls (press-release boilerplate, a running count
+        # such as "the fifth time Forbes recognized Dupaco"): one fact, stated by its truest, newest dated copy.
         tmpl = _template(best.text)
-        rivals = [r for s, r in scored[:60] if s >= 0.6 * best_s and _similar(_template(r.text), tmpl)]
+        rivals = [r for i, (s, r) in enumerate(scored) if _template(r.text) == tmpl
+                  or (i < 60 and s >= 0.6 * best_s and _similar(_template(r.text), tmpl))]
         yearly = _by_year(rivals)
         if yearly:   # the same statement about different years: separate facts, the year is a qualifier
             if q.year in yearly:
@@ -391,27 +403,72 @@ class Answerer:
                 return self._yearly(q, yearly)
             else:
                 rivals = yearly[max(yearly)]
-            best = max(rivals, key=truth_key)
-        disagree = any(_NUMBER.findall(r.text) != _NUMBER.findall(best.text) for r in rivals)
-        winner = max(rivals, key=truth_key) if disagree else best
-        if winner is best and not yearly:
-            # Near-ties on one page: the earliest mention is usually the lead/definition.
-            cov = self._coverage(q, best)
-            lead = [r for s, r in scored[:20] if r.page.vid == best.page.vid and s >= 0.7 * best_s
+        if all(counts(r.text) == counts(best.text) for r in rivals):
+            # Every copy gives the same figures: the best match stands unless a copy is more official or has a
+            # newer byline (its page's other sentences are then the newest too: the May release, not April's).
+            newer = [r for r in rivals if _byline_key(r) > _byline_key(best)]
+            winner = max(newer, key=truth_key) if newer else best
+        else:
+            winner = max(rivals, key=truth_key)
+        if not yearly and all(counts(r.text) == counts(winner.text) for r in rivals):
+            # Near-ties on the winning copy's page are read from the earliest, usually the lead or definition.
+            score = {r.rid: s for s, r in scored[:20]}
+            top = score.get(winner.rid, best_s)
+            cov = self._coverage(q, winner)
+            lead = [r for s, r in scored[:20] if r.page.vid == winner.page.vid and s >= 0.7 * top
                     and not _is_header(r.text) and self._coverage(q, r) >= cov]
-            winner = min(lead, key=lambda r: r.pos)
-        losers = [r for r in rivals if _NUMBER.findall(r.text) != _NUMBER.findall(winner.text)]
+            winner = min(lead, key=lambda r: r.pos, default=winner)
+        losers = [r for r in rivals if counts(r.text) != counts(winner.text)]
         note = None
         if losers:
             note = "Older or less authoritative pages state this differently; kept: " + explain(winner, max(losers, key=truth_key)) + "."
-        same = [r for r in rivals if r is not winner and _NUMBER.findall(r.text) == _NUMBER.findall(winner.text)]
+        same = [r for r in rivals if r is not winner and counts(r.text) == counts(winner.text)]
         support = sorted(same, key=lambda r: (-r.authority, r.page.url))
         text = self._join_places(winner, self._passage(winner))
+        lede = self._lede(q, winner)
+        if lede is not None:   # an article about the name asked: its lead paragraph says what the news is
+            head = self._passage(lede)
+            text = head if _sentence(winner.text) in head else f"{head} {text}"
+            winner = lede
         if q.wants_action:
             link = self._action_link(q, winner)
             if link and link not in text:
                 text += f" You can get started here: {link}"
-        return Result(text, [winner], note=note, support=support)
+        if q.answer_type in ("phone", "routing", "address"):
+            m = _ANSWER_SHAPES[q.answer_type].search(text)
+            if m:
+                support = support + self._stating(m.group(0), k, on_date)
+        return _cited(Result(text, [winner], note=note, support=support))
+
+    def _stating(self, value: str, k: int, on_date: str) -> list[Row]:
+        """Other live passages that state the same value (a routing number, a phone number, an address)."""
+        digits = max(re.findall(r"\d+", value), key=len, default="")
+        if len(digits) < 3:
+            return []
+        view = self._view(k)
+        rows = self.ledger.rows
+        want = re.sub(r"\W", "", value).lower()
+        return [rows[rid] for rid in sorted(self.index.postings.get(digits, {}))
+                if rid in view and rows[rid].kind == "text" and is_live(rows[rid], on_date)
+                and want in re.sub(r"\W", "", rows[rid].text).lower()]
+
+    def _titled(self, q: Question, row: Row) -> bool:
+        """Does the row's page title name everything the question names?"""
+        title = set(tokens(row.page.title.split("|")[0]))
+        return all(n in title for n in q.names)
+
+    def _lede(self, q: Question, row: Row) -> Optional[Row]:
+        """The lead paragraph of a dated article whose title names what the question names ('What recognition
+        has Dupaco received from Forbes?' -> 'Forbes ranks Dupaco as a top credit union in America'): a news
+        story's first paragraph states the news, where a later sentence only details it. Not for a question
+        that wants a figure or a shape (an address, a phone number), which the matching sentence states."""
+        if (row.authority not in (1, 2) or not q.names or q.answer_type or q.wants_number or not _ASKS_WHAT.match(q.raw)
+                or not self._titled(q, row)):
+            return None
+        for r in self.ledger.rows_by_version[row.page.vid][: row.pos]:
+            if r.kind == "text" and not _is_header(r.text) and len(r.text.split()) >= 12:
+                return r
+        return None
 
     def _yearly(self, q: Question, yearly: dict) -> Result:
         """The site has no statement for the asked year: give each year it does state, newest first."""
@@ -432,6 +489,76 @@ class Answerer:
         rows = max(sections.values(), key=lambda rs: (rs[0].authority, len(rs), -len(rs[0].page.url), -rs[0].page.vid))
         first = min(rows, key=lambda r: r.pos)
         return Result(self._join_places(first, self._passage(first)), [first])
+
+    def _service(self, q: Question, k: int, on_date: str) -> Optional[Result]:
+        """A request about the member's own account (update my address or phone, a lost card, trouble signing
+        in, a question about my account) is answered by Dupaco's own instructions: the official page whose
+        title names the task ('Shine Login Help' for a sign-in problem), read from its best-matching passage,
+        else the site's contact page, read from its lead (how members reach Dupaco about an account). The
+        phone number that page states is added when the passage does not give it."""
+        pages = self._official_pages(k)
+        best = self._task_page(q, k, on_date)
+        if best is None:
+            contact = [vid for vid, rs in pages.items() if "contact" in set(tokens(rs[0].page.title.split("|")[0]))
+                       and any(_ANSWER_SHAPES["phone"].search(r.text) for r in rs)]
+            if not contact:
+                return None
+            vid = min(contact, key=lambda v: (len(pages[v][0].page.url), v))
+            best = min((r for r in pages[vid] if len(r.text.split()) >= 4 and is_live(r, on_date)), key=lambda r: r.pos,
+                       default=None)
+            if best is None:
+                return None
+        text = self._passage(best)
+        if not _ANSWER_SHAPES["phone"].search(text):
+            phone = min((r for r in pages[best.page.vid] if _ANSWER_SHAPES["phone"].search(r.text)), key=lambda r: r.pos, default=None)
+            if phone is not None:
+                text += " " + _sentence(phone.text)
+        return Result(text, [best])
+
+    def _official_pages(self, k: int) -> dict:
+        """page version -> its passages, for every official page in the site as it stood at snapshot k."""
+        if k not in self._official:
+            pages: dict = defaultdict(list)
+            for r in self.ledger.view(k):
+                if r.kind == "text" and r.authority >= AUTHORITY["official"] and not _is_header(r.text):
+                    pages[r.page.vid].append(r)
+            self._official[k] = dict(pages)
+        return self._official[k]
+
+    def _task_page(self, q: Question, k: int, on_date: str) -> Optional[Row]:
+        """The best passage of the official page whose title or main heading names the task asked about, in the
+        member's own words, verbs included ('I can't log in to Shine' -> 'Shine Login Help'; 'become a member
+        online' -> the Join page headed 'Ready to Become Dupaco's Newest Member?'). One word alone does not
+        make a page about the task unless it is the whole task."""
+        words = [w for w, weight in q.words.items() if weight >= 1.0 and not w.endswith("*") and not w.isdigit()]
+        best_share, best_vid = 0.0, None
+        for vid, rs in sorted(self._official_pages(k).items()):
+            named = self._page_terms(rs[0]) | frozenset(with_prefixes(tokens(rs[0].section.split(" > ")[0])))
+            idf = [(self.index.idf.get(w, 2.0), w in named or any(a in named for a in expand([w]) if a != w)) for w in words]
+            hits = sum(hit for _, hit in idf)
+            total = sum(i for i, _ in idf)
+            if not total or (hits < 2 and hits < len(words)):
+                continue
+            share = sum(i for i, hit in idf if hit) / total
+            if share > best_share:
+                best_share, best_vid = share, vid
+        if best_vid is None or best_share < 0.5:
+            return None
+        rows = self.ledger.rows
+        allowed = frozenset(r.rid for r in self._official_pages(k)[best_vid] if is_live(r, on_date))
+        hits = sorted(((s, rows[rid]) for rid, s in self.index.scores(q.words, allowed).items()), key=lambda c: (-c[0], c[1].pos))
+        return next((r for _, r in hits if self._covered(q, r, 0.7)), None)
+
+    def _task(self, q: Question, k: int, on_date: str) -> Optional[Result]:
+        """'How do I ...?' answered from the official page about that task, with the link that does it."""
+        row = self._task_page(q, k, on_date)
+        if row is None:
+            return None
+        text = self._passage(row)
+        link = self._action_link(q, row)
+        if link and link not in text:
+            text += f" You can get started here: {link}"
+        return Result(text, [row])
 
     def _join_places(self, row: Row, text: str) -> str:
         """A passage that defines an area only by name ('live or work within our charter area') is joined
@@ -502,10 +629,21 @@ class Answerer:
         if len(ordered) > 1:
             text += " Other branches: " + " | ".join(ordered[1:]) + "."
         text += " Tell me which branch and I can give its exact hours."
-        return Result(text, [example[p] for p in ordered])
+        # Official pages that print the most common weekday schedule ('Monday-Friday, 8:30 a.m.-5:30 p.m.')
+        # state the same hours as these branch announcements and are cited first.
+        week = _schedules(ordered[0])[:1]
+        ties = [r for r in self.ledger.view(k) if week and r.kind == "text" and r.authority >= AUTHORITY["official"]
+                and is_live(r, on_date) and week[0] in _schedules(r.text)] if week else []
+        return _cited(Result(text, [example[p] for p in ordered], support=ties))
 
     # ---- links ---------------------------------------------------------------------------
     def _url(self, q: Question, k: int, on_date: str) -> Optional[Result]:
+        if q.rate_intent or q.rate_implied:
+            res = self._rates_link(q, k, on_date)
+            if res is not None:
+                return res
+        present = self.ledger.snapshots[k].pages   # canonical url -> page version this crawl saw
+        hosts = {urlparse(u).netloc for u in present}   # the site's own hosts
         view = self._view(k)
         rows = self.ledger.rows
         words = {t: w for t, w in q.words.items() if t not in _URL_WORDS}
@@ -519,17 +657,77 @@ class Answerer:
                 if not url.startswith("http"):
                     continue
                 url = _clean_link(url)
-                bonus = 1.0 + sum(0.5 for t in tokens(anchor) if t in words)
+                # a descriptive label that says what the link does ('Join Dupaco'); a printed address is no label
+                label = "" if re.search(r"www\.|https?:|\.com\b|/", anchor) else anchor
+                bonus = 1.0 + sum(0.5 for t in tokens(label) if t in words)
                 vote = s * bonus * _PROSE_WEIGHT[row.authority] * (0.3 + self._coverage(q, row)) ** 2
+                if urlparse(url).netloc in hosts and canonical_url(url) not in present:
+                    vote *= 0.5   # an old link inside the site to a page this crawl no longer has
+                if page_kind(url) in ("news", "blog") and not words.keys() & _ARTICLE_WORDS:
+                    vote *= 0.5   # a press release or blog post is read, not where a member does something
                 votes[url] = max(votes[url], vote)
                 source.setdefault(url, row)
         if not votes:
             return None
         url = max(sorted(votes), key=lambda u: votes[u])
-        return Result(f"You can find it here: {url}", [source[url]])
+        return _cited(Result(f"You can find it here: {url}", [source[url]], support=self._page_row(url, k)))
+
+    def _page_row(self, url: str, k: int) -> list[Row]:
+        """The first passage of the page a link points to, when this crawl has that page (to cite it)."""
+        vid = self.ledger.snapshots[k].pages.get(canonical_url(url))
+        found = [r for r in self.ledger.rows_by_version.get(vid, []) if r.kind == "text"] if vid is not None else []
+        return found[:1]
+
+    def _rates_link(self, q: Question, k: int, on_date: str) -> Optional[Result]:
+        """'What link shows the certificate rates?': the official product page whose rate table lists the facts
+        asked about, at the in-page rates section the site's own links point to ('.../savings-account#rates')."""
+        about = replace(q, words={t: w for t, w in q.words.items() if t not in _URL_WORDS},
+                        key_words=[t for t in q.key_words if t not in _URL_WORDS])   # what the page is about, not "link"
+        sel = self._select(about, k, on_date, siblings=False)
+        if sel is None:
+            return None
+        found, members, _ = sel
+        ids = self.ledger.identities()
+        holders = {r.page.url for key in {ids[r.rid] for r in found} for r in members.get(key, [])
+                   if r.authority >= AUTHORITY["official"]}
+        present = self.ledger.snapshots[k].pages
+        uses: Counter = Counter()
+        where: dict = {}
+        for r in self.ledger.view(k):
+            if r.authority < AUTHORITY["official"] or not r.links or not is_live(r, on_date):
+                continue
+            for _anchor, link in r.links:
+                base, _, frag = link.partition("#")
+                target = canonical_url(base)
+                if "rate" in frag.lower() and target in holders and target in present:
+                    url = _clean_link(link)
+                    uses[url] += 1
+                    where.setdefault(url, r)
+        if not uses:
+            return None
+        url = max(sorted(uses), key=lambda u: (uses[u], -len(u)))
+        return _cited(Result(f"You can find it here: {url}", self._page_row(url, k) or [where[url]], support=[where[url]]))
 
 
 # ---- module helpers ----------------------------------------------------------------------
+def _cited(res: Result) -> Result:
+    """Order an answer's citations: among the pages that state the answering value, the most authoritative
+    kind first (an official product or contact page before a press release, blog post, calculator or PDF),
+    then the answering row's own page, then every other page that states it; one citation per page."""
+    top = max((r.authority for r in res.rows), default=-1)
+    seen = {r.page.url for r in res.rows}
+    first, rest = [], []
+    for r in sorted(res.first + res.support, key=lambda r: (-r.authority, r.page.url, r.rid)):
+        if r.page.url in seen:
+            continue
+        seen.add(r.page.url)
+        (first if r.authority > top else rest).append(r)
+    res.first, res.support = first, rest
+    return res
+
+
+
+_ARTICLE_WORDS = {stem(w) for w in "news newsroom press release article blog story announcement".split()}
 _HOURS_WORDS = {stem(w) for w in ("hour lobby drive up thru through open close branch branches office time times what "
                                   "general typical usual regular").split()}
 _URL_WORDS = {stem(w) for w in "link url web page website address site".split()}
@@ -577,6 +775,15 @@ _STATES = re.compile(r"\b(Alabama|Alaska|Arizona|Arkansas|California|Colorado|Co
                      r"Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|"
                      r"North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|"
                      r"Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)\b")
+# A request about the member's own account: their contact details, a lost card, signing in, an account question.
+_SERVICE_Q = re.compile(
+    r"\b(update|change|correct|edit|fix)\b[^?.]{0,40}\b(address|phone|e-?mail|name|contact|information|info|details)\b|"
+    r"\b(lost|stolen|missing|misplaced)\b[^?.]{0,30}\bcard\b|\bcard\b[^?.]{0,30}\b(lost|stolen|missing)\b|"
+    r"\b(can'?t|cannot|unable to|trouble|problems?|locked out|forgot)\b[^?.]{0,40}\b(log ?in|sign ?in|login|password|username)\b|"
+    r"\b(questions?|problems?|issues?)\b[^?.]{0,20}\babout (my|an?) account\b|"
+    r"\b(reach|contact|talk to|speak (to|with)|get in touch with)\b[^?.]{0,15}\b(you|dupaco|someone|a person|support|customer service)\b",
+    re.I)
+_ASKS_WHAT = re.compile(r"\s*(what|tell me|describe)\b", re.I)   # about a thing, not which/where/when/who/how
 _ASKS_VALUE = re.compile(r"\b(what|how much)\b.*\b(pay|paid|earn|earned|rate|apy|apr|yield|charge|cost)\b", re.I)
 
 
@@ -778,14 +985,24 @@ _NEVER_SHOWN = ("points", "payment example", "minimum to open")
 _CAPTION_FILLER = {stem(w) for w in "rates rate loans loan accounts account savings regular special".split()}
 
 
+def _byline_key(row: Row) -> tuple:
+    """How official a copy is and how new its printed byline date is (official pages carry none)."""
+    return row.authority, row.page.published or ""
+
+
 def _template(text: str) -> frozenset:
-    return frozenset(t for t in tokens(_NUMBER.sub(" ", text)) if t not in STOPWORDS)
+    """A statement's words with its figures (digits and ordinal counts) masked out."""
+    return frozenset(t for t in tokens(COUNT.sub(" ", text)) if t not in STOPWORDS)
 
 
 def _similar(a: frozenset, b: frozenset) -> bool:
+    """Two statements of one claim: mostly the same words, or one restating the other with a few words
+    added ('Forbes named Dupaco one of the top-rated credit unions in America' printed with and without
+    'for a third year in a row')."""
     if not a or not b:
         return False
-    return len(a & b) / len(a | b) >= 0.6
+    shared = len(a & b)
+    return shared / len(a | b) >= 0.6 or (min(len(a), len(b)) >= 8 and shared / min(len(a), len(b)) >= 0.8)
 
 
 def _sentence(text: str) -> str:
@@ -797,6 +1014,18 @@ def _is_header(text: str) -> bool:
     letters = [c for c in text if c.isalpha()]
     upper = sum(c.isupper() for c in letters)
     return text.rstrip().endswith(":") or (len(letters) > 3 and upper / len(letters) > 0.6)
+
+
+_DAY = r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+_TIME = r"(\d{1,2}(?::\d\d)?\s*[ap]\.?\s?m\.?|noon)"
+_SCHEDULE = re.compile(_DAY + r"\s*(?:-|–|—|through|to)\s*" + _DAY + r"\W{1,3}" + _TIME + r"\s*(?:-|–|—|to)\s*" + _TIME, re.I)
+
+
+def _schedules(text: str) -> list[tuple]:
+    """(first day, last day, opens, closes) for each day-range schedule a text prints, normalised."""
+    def t(x: str) -> str:
+        return re.sub(r"[\s.]", "", x.lower())
+    return [(a.lower(), b.lower(), t(o), t(c)) for a, b, o, c in _SCHEDULE.findall(text)]
 
 
 def _hours_part(text: str, kind: str) -> Optional[str]:
