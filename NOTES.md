@@ -12,7 +12,9 @@ row (product, caption, qualifiers such as term, balance tier, loan amount, model
 variant, every value column such as dividend rate / APY / rate / APR / fee / minimum to open, and the
 "Rates are effective as of" date printed under the table), one row per "Label: value" line, one row
 per branch-hours block, and one row per prose sentence or bullet (kept with its heading path, FAQ
-question and page). Each row remembers its page, the page kind, the page's printed byline date
+question and page). A table under an in-page tab link (the May-August rate sheets caption a table
+only "Regular" under a "Term-Share Certificate Rates" tab) takes the tab label as part of its
+caption, so its rows still name the product. Each row remembers its page, the page kind, the page's printed byline date
 (news, blog) and the snapshot it came from. History is never thrown away: rows are stored once per
 distinct page version, and the site *as it stood on a date* is the newest version of every page at or
 before that date (a page that drops out of a later crawl keeps its last content).

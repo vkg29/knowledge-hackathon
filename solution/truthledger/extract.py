@@ -175,6 +175,13 @@ def _is_link_only(raw: str) -> bool:
     return bool(raw) and not re.sub(r"!?\[[^\]]*\]\([^)]*\)", "", raw).strip(" -*")
 
 
+def _is_tab(raw: str) -> bool:
+    """A bullet whose only link points back into the same page ('- [Term-Share Certificate
+    Rates](https://www.dupaco.com/rates#)') is a tab or accordion label over the content below it."""
+    found = links(raw)
+    return bool(found) and _is_link_only(raw) and bool(re.match(r"^\s*[-*+]\s", raw)) and all(u.endswith("#") for _, u in found)
+
+
 def _caption(blocks: list[_Block], idx: int) -> list[str]:
     """Up to two short label lines right above a table ('Credit Cards', 'Platinum Visa')."""
     cap = []
@@ -245,11 +252,13 @@ def extract_rows(markdown: str) -> list[RawRow]:
     blocks = _blocks(markdown)
     out: list[RawRow] = []
     heads: list[tuple[int, str]] = []
+    tab = ""   # the tab label the following tables sit under ('Term-Share Certificate Rates')
     skipping_level = 0
     i = 0
     while i < len(blocks):
         b = blocks[i]
         if b.kind == "heading":
+            tab = ""
             if skipping_level and b.level > skipping_level:
                 i += 1
                 continue
@@ -272,9 +281,16 @@ def extract_rows(markdown: str) -> list[RawRow]:
             heads = [h for h in heads if h[0] < _FAQ_LEVEL] + [(_FAQ_LEVEL, b.text)]
             i += 1
             continue
+        if b.kind == "line" and _is_tab(b.raw):
+            tab = b.text
         section = " > ".join(t for _, t in heads)
         if b.kind == "table":
-            out.extend(_table_rows(b, _caption(blocks, i), section, _table_effective(blocks, i)))
+            # A table captioned only 'Regular' under a 'Term-Share Certificate Rates' tab is a
+            # regular certificate table: the tab names the product, like a caption line above it.
+            caption = _caption(blocks, i)
+            if tab and tab not in caption:
+                caption = [tab] + caption
+            out.extend(_table_rows(b, caption, section, _table_effective(blocks, i)))
             i += 1
             continue
         # Branch hours: a "Lobby" / "Drive-up" label followed by day: time lines.

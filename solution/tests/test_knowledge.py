@@ -377,6 +377,40 @@ Rates are effective as of {eff}.
 """
 
 
+# The May-June 2026 /rates layout: tables captioned only 'Regular' sit under a tab link that names
+# the product; nothing else on the row says 'certificate'.
+TABBED_RATES = """## Rates
+
+##### Select an option below:
+
+- [Term-Share Certificate Rates](https://cu.example/rates#)
+
+Regular
+
+| Term | Dividend Rate | Annual Percentage Yield (APY)1 | Min. to Earn |
+| --- | --- | --- | --- |
+| 12 Month | 2.88% | 2.90% | $1,000 |
+| 6 Month | 3.37% | 3.40% | $1,000 |
+
+**Rates are effective as of 03/03/2026 and are subject to change without notice.**
+
+- [Business Term-Share Certificate Rates](https://cu.example/rates#)
+
+Regular
+
+| Term | Dividend Rate | Annual Percentage Yield (APY)1 | Min. to Earn |
+| --- | --- | --- | --- |
+| 12 Month | 2.50% | 2.55% | $1,000 |
+
+**Rates are effective as of 03/03/2026 and are subject to change without notice.**
+"""
+
+PERSONAL_LOAN = """# Personal Loans
+
+For a $1,500 loan for a term of 12 months with a 8.95% APR, the monthly payment will be $131.14.
+"""
+
+
 def snap(sid, date, pages):
     return Snapshot(sid, date, [Page(url=SITE + path, title=path.strip("/") or "home", markdown=md,
                                      fetched_at=date + "T00:00:00Z") for path, md in pages.items()])
@@ -458,6 +492,21 @@ class TruthRules(unittest.TestCase):
         self.assertIn("6.10%", ans.text)
         self.assertIsNone(parse_question_qualifiers("60-month auto loan rate as of June 2026").years)
         self.assertEqual(parse_question_qualifiers("As of May 2026, the APR on a 2025 model-year car?").years, (2025, 2025))
+
+    def test_tab_label_names_the_product_of_a_table_captioned_only_regular(self):
+        ks = system(snap("01_2026-05-12_base", "2026-05-12", {"/rates": TABBED_RATES, "/personal-loans": PERSONAL_LOAN}),
+                    snap("02_2026-09-28_latest", "2026-09-28", {"/rates": CERT_TABLE.format(r12="3.37", a12="3.40", eff="09/01/2026"),
+                                                                "/personal-loans": PERSONAL_LOAN}))
+        for q in ("What is the 12-month certificate rate?", "What did a 12 month certificate pay?"):
+            ans = ks.answer(q, as_of="2026-05-15")
+            self.assertIn("2.90%", ans.text, q)
+            for wrong in ("3.40%", "8.95%", "2.55%"):   # later value, loan prose, business tab
+                self.assertNotIn(wrong, ans.text, q)
+            self.assertTrue(ans.confident, q)
+        six = ks.answer("What is the 6-month certificate APY?", as_of="2026-05-15")
+        self.assertTrue(six.confident)
+        self.assertIn("3.40%", six.text)
+        self.assertIn("2.55%", ks.answer("What is the 12-month business certificate APY?", as_of="2026-05-15").text)
 
 
 class Authority(unittest.TestCase):
