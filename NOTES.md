@@ -170,6 +170,28 @@ truth rules and question routing improved (details in the commit history).
 - **Branch hours** exist only inside press releases about individual branches, so general hours are
   summarised from those; a branch with no published hours is refused rather than guessed.
 
+### Deferred to the follow-up redesign
+
+Automated review raised several findings about how the system decides that two table rows on
+different pages are the *same product* (a copy that the truth rules should compare) or *different
+products* (separate facts). Several fix rounds improved the real answers but each round also exposed
+new edge cases, so the remaining ones are deferred to a redesign. In that redesign, product identity
+will be decided once at load time against a fixed product catalogue, and every fact will carry a
+valid-from / valid-to timeline. Known gaps until then, all reproduced only on small synthetic sites
+unless noted:
+
+- A stale copy whose label words differ a lot from the official row's can still compete with it
+  as a separate fact instead of being recognised as an older copy.
+- Two official rate sheets that name the same product slightly differently may be listed as two
+  products, and a differently named sibling product (for example a hypothetical "Student"
+  certificate) can still surface in a plain question's answer.
+- List and catalogue answers decide which rows belong to the asked product with word-overlap rules,
+  so an unusual wording can pull in or leave out a sibling product.
+- A conflict note can call a copy that states fewer figures a "different figure" even when the
+  figures it does state agree.
+- For IRA, Roth and Traditional questions the system now refuses when no IRA row covers the term
+  (for example the site lists no 12-month IRA certificate); other product families have no such guard.
+
 ## Optional AI steps (planned, measured follow-up)
 
 `truthledger/hooks.py` defines where an LLM can help without ever judging which number is true:
