@@ -7,7 +7,7 @@ from typing import Optional
 
 from .catalogue import product_words, question_family
 from .identity import KINDS
-from .qualifiers import PAST_INTRO, Qualifiers, parse_question_qualifiers
+from .qualifiers import PAST_INTRO, Qualifiers, parse_question_qualifiers, strip_model_years
 from .text import MONTHS, date_asked, norm, relative_date, strip_dates
 from .vocab import GENERIC, STOPWORDS, content_tokens, expand, tokens
 
@@ -33,7 +33,7 @@ _CHANGE = re.compile(r"\b(changed|went (up|down)|gone (up|down)|increased|decrea
 # "how does it change with the term"): a change only in a question about time.
 _SHIFT = re.compile(r"\b(chang(e|es|ing)|go(es|ing)? (up|down)|increas(e|es|ing)|decreas(e|es|ing)|rais(e|es|ing)|"
                     r"drop(s|ping)?|lower(s|ing)?|cut(s|ting)?|mov(e|es|ing))\b", re.I)
-_TIME = re.compile(r"\b(did|was|were|been|since|ago|used to|last|recent(ly)?|previous(ly)?|earlier|this year)\b|\b(19|20)\d\d\b|"
+_TIME = re.compile(r"\b(did|was|were|been|since|ago|used to|last|recent(ly)?|previous(ly)?|earlier)\b|\b(19|20)\d\d\b|"
                    + _TRAILING_YEAR.pattern, re.I)
 _BEFORE = re.compile(r"\bbefore (it|its|the|this|that)\b[^.?,;]{0,30}?\b(chang|increas|decreas|rais|rose|ris|hike|cut|drop|lower|"
                      r"fell|reduc|updat|went|gone|go(es)? (up|down))|\bprevious(ly)?\b|\bprior\b|\bused to\b|\bold (rate|apy|apr)\b", re.I)
@@ -162,7 +162,8 @@ def _year_asked(q: str, today: Optional[str], quals: Qualifiers) -> Optional[int
 
 def _change(q: str, low: str, today: Optional[str]) -> tuple:
     """(mode, since, until) for a question about how a fact changed over time."""
-    timed = bool(_TIME.search(low))
+    dateless = strip_dates(low)
+    timed = dateless != low or bool(_TIME.search(re.sub(r"\$\s?\d[\d,]*(\.\d+)?", " ", strip_model_years(dateless))))
     if _WHEN_CHANGED.search(low) and timed:
         mode = "when"
     elif _BEFORE.search(low) and re.search(r"\b(pay|paid|earn|earned|rate|apy|apr|charge|charged|cost)\b", low):

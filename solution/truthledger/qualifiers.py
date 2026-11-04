@@ -134,14 +134,22 @@ def parse_row_qualifiers(label: str, qual_cells: list[tuple[str, str]], caption:
     return Qualifiers(parse_terms(text), years, amount, variants)
 
 
+def _is_model_year(m: re.Match) -> bool:
+    window = m.string[max(0, m.start() - 30): m.end() + 30].lower()
+    return bool(re.search(r"model|vehicle|car|truck|auto|motorcycle", window))
+
+
+def strip_model_years(text: str) -> str:
+    """The text with every model year ('a 2025 car', '2023 model-year vehicle') blanked out."""
+    return _YEAR_SINGLE.sub(lambda m: " " if _is_model_year(m) else m.group(0), text)
+
+
 def parse_question_qualifiers(question: str) -> Qualifiers:
     q = strip_dates(question)
     years = None
     for m in _YEAR_SINGLE.finditer(q):
-        y = int(m.group(1))
-        window = q[max(0, m.start() - 30): m.end() + 30].lower()
-        if re.search(r"model|vehicle|car|truck|auto|motorcycle", window):
-            years = (y, y)
+        if _is_model_year(m):
+            years = (int(m.group(1)), int(m.group(1)))
     amount = None
     if "$" in q or re.search(r"\d{1,3},\d{3}", q):
         amount = parse_amount_range(re.sub(r"\b(19|20)\d\d\b", "", q))

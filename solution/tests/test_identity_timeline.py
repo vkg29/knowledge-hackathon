@@ -315,6 +315,16 @@ class IdentityMatching(unittest.TestCase):
         self.assertEqual(numbers(ks.answer("What's the 60-month APR for a 2025 car?").text), ["5.39%"])
         self.assertEqual(numbers(ks.answer("What's the 60-month APR for a 2023 car?").text), ["5.64%"])
         self.assertEqual(numbers(ks.answer("What's the 60-month APR for a 2023 car?", as_of="2026-05-31").text), ["5.19%"])
+        # comparing model years or balances is not a question about change: today's figures only
+        for q in ("Is the 60-month APR lower for a 2025 car than a 2023 car?", "Does the 60-month APR go up for a 2023 car?",
+                  "How does the 60-month APR change for a 2023 car?"):
+            ans = ks.answer(q)
+            self.assertTrue(numbers(ans.text), q)
+            self.assertLessEqual(set(numbers(ans.text)), {"5.39%", "5.64%"}, q)
+        self.assertIsNone(parse("Is the APR lower for a car from this year?", "2026-09-28").change)
+        self.assertIsNone(parse("Does the APY go up if I deposit $2000?", "2026-09-28").change)
+        self.assertEqual(parse("Did the 60-month APR for a 2023 car go up?", "2026-09-28").change, "history")
+        self.assertEqual(parse("Is the 60-month APR lower than in May 2026?", "2026-09-28").change, "history")
 
     def test_unnamed_table_inherits_its_pages_name_and_landing_page_copy_joins_it(self):
         ks = system(snap("01_2026-05-12_a", "2026-05-12", {"/rates": OLD_CHECKING, "/checking-offer-lp": CHECKING_PROMO}),
