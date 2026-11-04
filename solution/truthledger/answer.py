@@ -1,8 +1,11 @@
-"""Answer composition: find candidate rows, let the truth rules pick, phrase the winner.
+"""Answer composition: find the facts a question asks about, take their truth winners, phrase them.
 
-Every answer is built from ledger rows only. The text quotes the winning row(s) and nothing
-else, so a stale or other-tier value never appears next to the right one; the same question
-always produces byte-identical text because every step is a deterministic sort.
+Rate questions are matched onto fact identities (`identity.py`); the value of each identity is
+its winner over every live copy (`timeline.py`), never just the copies the question's words
+pulled up. Change questions read the identities' histories. Prose, hours and link questions use
+the ledger's passages. Every answer is built from ledger rows only: the text quotes the winning
+row(s) and nothing else, so a stale or other-tier value never appears next to the right one, and
+the same question always produces byte-identical text because every step is a deterministic sort.
 """
 from __future__ import annotations
 
@@ -16,7 +19,7 @@ from .identity import FactKey
 from .ledger import Ledger, Row
 from .matcher import QUESTION_HEADING, LexicalIndex, row_document
 from .pages import AUTHORITY
-from .qualifiers import VARIANT_WORDS, amount_match, parse_terms, terms_match, years_match
+from .qualifiers import amount_match, parse_terms, terms_match, years_match
 from .query import Question, parse
 from .rules import explain, is_live, truth_key
 from .text import has_digit, long_date, norm
@@ -240,9 +243,12 @@ class Answerer:
         sel = None
         for ref_k in range(end_k, -1, -1):   # the newest crawl that lists the fact; a plain match beats a variant
             found = self._select(q, ref_k, snaps[ref_k].taken_on, siblings=False)
-            if found and (sel is None or all(ids[r.rid].kinds - q.kinds for r in sel[0])):
+            if found is None:
+                continue
+            plain = any(not ids[r.rid].kinds - q.kinds for r in found[0])
+            if sel is None or plain:
                 sel = found
-            if sel and not all(ids[r.rid].kinds - q.kinds for r in sel[0]):
+            if plain:
                 break
         if sel is None:
             return None
@@ -597,10 +603,10 @@ def _describe_history(q: Question, runs: list, start_k: int, end_k: int, metric:
             return f"Yes, the {name} is still listed: {value_text(last_row, metric)}.", [last_row]
         gone = f"the {long_date(snaps[listed[-1][1] + 1].taken_on)} crawl" if listed[-1][1] + 1 < len(snaps) else "the newest crawl"
         if _ASKS_VALUE.search(q.raw):
-            return (f"The {name} is no longer offered: it is not listed on Dupaco's website since {gone}. When it was last "
+            return (f"The {name} is no longer offered: it has not been listed on Dupaco's website since {gone}. When it was last "
                     f"listed ({long_date(snaps[listed[-1][1]].taken_on)} crawl) it paid {value_text(last_row, metric)}."), [last_row]
         return f"{_GONE} the {name} no longer appears on Dupaco's rate pages.", []
-    steps = []   # (row, when) for each listed run, oldest first
+    steps = []   # (row, when it took effect, first snapshot) for each listed run, oldest first
     prev = None
     for k0, _k1, row in runs:
         if row is not None:
@@ -762,7 +768,6 @@ def _render(r: Row, q: Question) -> str:
 
 
 _NEVER_SHOWN = ("points", "payment example", "minimum to open")
-_VARIANT_TOKENS = {t for w in VARIANT_WORDS for t in tokens(w)}
 _CAPTION_FILLER = {stem(w) for w in "rates rate loans loan accounts account savings regular special".split()}
 
 
