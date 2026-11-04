@@ -134,6 +134,45 @@ class ProseRates(unittest.TestCase):
         self.assertIn("8.99%", ans.text)
         self.assertNotIn("5.24%", ans.text)
 
+    def test_same_line_on_a_more_official_page_about_another_product_is_not_a_rival(self):
+        # A strictly more official copy of the best sentence could outrank it, but only a copy about the same
+        # product: the auto-loans page's line is another product's figure.
+        pages = {"/personal-loan-offer-lp": "# Personal Loans\n\nRates as low as 8.99% APR.\n",
+                 "/loans/auto-loans": "# Auto Loans\n\nRates as low as 5.24% APR.\n"}
+        titles = {"/personal-loan-offer-lp": "Personal Loans", "/loans/auto-loans": "Auto Loans"}
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", pages, titles))
+        ans = ks.answer("What rate do personal loans have?")
+        self.assertIn("8.99%", ans.text)
+        self.assertNotIn("5.24%", ans.text)
+
+    def test_same_line_in_a_newer_article_about_another_product_is_not_a_rival(self):
+        # A newer dated copy wins only when it is about the same product; the article's headline names the
+        # product a rate sentence under it belongs to.
+        pages = {"/newsroom/personal-loan-rates": release("March 2, 2026", "Credit union lowers personal loan rates",
+                                                          "Rates as low as 8.99% APR.", footer=False),
+                 "/newsroom/auto-loan-rates": release("June 1, 2026", "Credit union lowers auto loan rates",
+                                                      "Rates as low as 5.24% APR.", footer=False)}
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", pages))
+        ans = ks.answer("What rate do personal loans have?")
+        self.assertIn("8.99%", ans.text)
+        self.assertNotIn("5.24%", ans.text)
+
+    def test_article_lead_does_not_bring_in_another_products_rate(self):
+        # The lead paragraph of the article titled with the name asked says what the news is, but a sentence in
+        # it that quotes another product's rate is left out.
+        pages = {"/newsroom/acme-top-lender": release(
+            "August 3, 2026", "Acme Magazine names the credit union a top lender",
+            "SPRINGFIELD, Iowa - Acme Magazine recognized the credit union as one of the top lenders in the state. "
+            "Its auto loan rates start as low as 5.24% APR.",
+            "The recognition from Acme Magazine praised the credit union for its member service and community giving.",
+            footer=False)}
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", pages,
+                         {"/newsroom/acme-top-lender": "Acme Magazine names the credit union a top lender"}))
+        ans = ks.answer("What recognition has the credit union received from Acme Magazine?")
+        self.assertTrue(ans.confident)
+        self.assertIn("top lenders", ans.text)
+        self.assertNotIn("5.24%", ans.text)
+
     def test_rate_question_on_an_article_is_not_led_by_its_first_paragraph(self):
         pages = {"/newsroom/holiday-club": release(
             "October 1, 2026", "Holiday Club returns for members",

@@ -14,15 +14,15 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from typing import Optional
 
-from .catalogue import family_matches
-from .identity import FactKey
+from .catalogue import family_matches, family_of, product_words
+from .identity import KINDS, FactKey
 from .ledger import Ledger, Row
 from .matcher import QUESTION_HEADING, LexicalIndex, row_document
-from .pages import AUTHORITY, canonical_url
-from .qualifiers import amount_match, parse_terms, terms_match, years_match
+from .pages import AUTHORITY, canonical_url, url_path
+from .qualifiers import amount_match, parse_terms, parse_variants, terms_match, years_match
 from .query import Question, parse
 from .rules import explain, is_live, truth_key
-from .text import COUNT, counts, long_date, norm, states_count
+from .text import COUNT, ORDINAL_COUNT, counts, long_date, norm, states_count
 from .timeline import figures, value_text
 from .vocab import STOPWORDS, expand, stem, tokens, with_prefixes
 
@@ -392,11 +392,23 @@ class Answerer:
         # The same statement printed by several pages or crawls (press-release boilerplate, a running count
         # such as "the fifth time Forbes recognized Dupaco"): one fact, stated by its truest, newest dated copy.
         # An exact copy (same words, figures masked) is a rival wherever it ranks when it could outrank the best
-        # match under the rules below: a dated copy, or a strictly more official one.
+        # match under the rules below: a dated copy, or a strictly more official one. A copy is only a rival when
+        # it is about the same product as the best match, or the product the question asks about: "Rates as low
+        # as 5.24% APR." on the auto-loans page is a different fact from the same sentence on the personal-loans
+        # page.
         tmpl = _template(best.text)
+        about = _about(best, self.product_vocab)
+
+        def same_subject(r: Row) -> bool:
+            if r is best:
+                return True
+            other = _about(r, self.product_vocab)
+            return other == about or _asks_about(q, other, self.product_vocab)
+
         rivals = [r for i, (s, r) in enumerate(scored)
-                  if (i < 60 and s >= 0.6 * best_s and _similar(_template(r.text), tmpl))
-                  or ((r.page.published or r.authority > best.authority) and _template(r.text) == tmpl)]
+                  if ((i < 60 and s >= 0.6 * best_s and _similar(_template(r.text), tmpl))
+                      or ((r.page.published or r.authority > best.authority) and _template(r.text) == tmpl))
+                  and same_subject(r)]
         yearly = _by_year(rivals)
         if yearly:   # the same statement about different years: separate facts, the year is a qualifier
             if q.year in yearly:
@@ -429,9 +441,14 @@ class Answerer:
         text = self._join_places(winner, self._passage(winner))
         lede = self._lede(q, winner, need_percent)
         if lede is not None:   # an article about the name asked: its lead paragraph says what the news is
-            head = self._passage(lede)
-            text = head if _sentence(winner.text) in head else f"{head} {text}"
-            winner = lede
+            # The lead may add only what the article says about the name asked, never a rate or dollar figure
+            # the answer does not already state, nor a figure about a product the question did not ask about;
+            # such sentences are left out, and the lead with them.
+            head = [r for r in self._passage_rows(lede) if r is winner or not _foreign_figure(q, r, text)]
+            if head:
+                lead = " ".join(_sentence(r.text) for r in head)
+                text = lead if any(r is winner for r in head) else f"{lead} {text}"
+                winner = head[0]
         if q.wants_action:
             link = self._action_link(q, winner)
             if link and link not in text:
@@ -586,6 +603,10 @@ class Answerer:
 
     def _passage(self, row: Row, limit: int = 420) -> str:
         """The winning sentence plus the sentences that follow it in the same paragraph or list."""
+        return " ".join(_sentence(r.text) for r in self._passage_rows(row, limit))
+
+    def _passage_rows(self, row: Row, limit: int = 420) -> list[Row]:
+        """The rows `_passage` reads, in page order."""
         siblings = self.ledger.rows_by_version[row.page.vid]
         heading = row.section.rsplit(" > ", 1)[-1]
         if heading.endswith("?") or QUESTION_HEADING.search(heading):   # an FAQ answer reads best from its first sentence
@@ -594,16 +615,16 @@ class Answerer:
                 first -= 1
             if row.pos - first <= 4 and not any(_is_header(r.text) for r in siblings[first:row.pos]):
                 row = siblings[first]
-        parts = [_sentence(row.text)]
-        size = len(parts[0])
+        parts = [row]
+        size = len(_sentence(row.text))
         for nxt in siblings[row.pos + 1: row.pos + 6]:
             if nxt.kind != "text" or nxt.section != row.section or nxt.block - row.block > 3 or _is_header(nxt.text):
                 break
             if size + len(nxt.text) > limit:
                 break
-            parts.append(_sentence(nxt.text))
+            parts.append(nxt)
             size += len(nxt.text)
-        return " ".join(parts)
+        return parts
 
     # ---- branch hours --------------------------------------------------------------------
     def _hours(self, q: Question, k: int, on_date: str) -> Optional[Result]:
@@ -986,6 +1007,52 @@ def _byline_key(row: Row) -> tuple:
 def _template(text: str) -> frozenset:
     """A statement's words with its figures (digits and ordinal counts) masked out."""
     return frozenset(t for t in tokens(COUNT.sub(" ", text)) if t not in STOPWORDS)
+
+
+def _about(row: Row, vocab: frozenset) -> Optional[tuple]:
+    """The product a prose statement is about, (family, product name words, kinds, terms), read from the nearest
+    context that names a catalogue family: the sentence itself, then its subheadings nearest first, then an
+    undated page's name (its title), headline and address. Product name words count only when the site's rate
+    tables use them as a product's name (`vocab`: 'bright', 'share', 'platinum'), so the other words of a
+    sentence or a marketing headline ('Grow Your Savings Faster') are not read as a name. A dated article's
+    headline names its story, not the subject of every sentence in it (press-release boilerplate such as "It has
+    over 600 employees and 22 branch office locations" sits under "Are reward credit cards worth it?"), so it is
+    read only for a sentence that states a rate, which always belongs to a product. None when no context names a
+    product. Ordinal counts ('the fifth time') are figures, not name words."""
+    headline, *subheads = row.section.split(" > ")
+    contexts = [row.text] + subheads[::-1]
+    if not row.page.published:
+        contexts += [row.page.title.split("|")[0], headline, re.sub(r"[/_-]", " ", url_path(row.page.url))]
+    elif "%" in row.text:
+        contexts.append(headline)
+    for c in contexts:
+        fam = family_of(c)
+        if fam:
+            c = ORDINAL_COUNT.sub(" ", c)
+            return fam, product_words(c, fam) & vocab, frozenset(parse_variants(c)) & KINDS, parse_terms(c)
+    return None
+
+
+def _asks_about(q: Question, about: Optional[tuple], vocab: frozenset) -> bool:
+    """Is a statement about the product the question names (its family, every product name and kind asked)?"""
+    return (about is not None and q.family is not None and family_matches(q.family, about[0])
+            and q.product & vocab <= about[1] and q.kinds <= about[2])
+
+
+_MONEY_OR_RATE = re.compile(r"%|\$\s*\d")
+
+
+def _foreign_figure(q: Question, row: Row, answer: str) -> bool:
+    """Would this sentence bring a figure into the answer that is not about what was asked: a rate or a dollar
+    amount the answer does not already state, or any figure in a sentence naming a product the question did
+    not ask about?"""
+    if not states_count(row.text):
+        return False
+    stated = set(counts(answer))
+    if _MONEY_OR_RATE.search(row.text) and not set(counts(row.text)) <= stated:
+        return True
+    fam = family_of(row.text)
+    return fam is not None and (q.family is None or not family_matches(q.family, fam))
 
 
 def _similar(a: frozenset, b: frozenset) -> bool:

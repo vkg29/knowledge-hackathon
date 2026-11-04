@@ -202,14 +202,14 @@ def counts(s: str) -> list[str]:
     return [m.group(0).lower() for m in COUNT.finditer(s)]
 
 
-_ORDINAL_COUNT = re.compile(r"\b(?:" + "|".join(ORDINAL_WORDS) + r")\s+(?:consecutive\s+|straight\s+|annual\s+)?"
-                            r"(?:time|year|award|honor|recognition)s?\b", re.I)
+ORDINAL_COUNT = re.compile(r"\b(?:" + "|".join(ORDINAL_WORDS) + r")\s+(?:consecutive\s+|straight\s+|annual\s+)?"
+                           r"(?:time|year|award|honor|recognition)s?\b", re.I)
 
 
 def states_count(s: str) -> bool:
     """Does the text state a figure: a digit, or an ordinal count ('the eighth consecutive year', 'the fifth
     time'), not an ordinal used as a name ('first-time homebuyer')?"""
-    return has_digit(s) or bool(_ORDINAL_COUNT.search(s))
+    return has_digit(s) or bool(ORDINAL_COUNT.search(s))
 
 
 _MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
