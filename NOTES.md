@@ -14,10 +14,12 @@ variant, every value column such as dividend rate / APY / rate / APR / fee / min
 per branch-hours block, and one row per prose sentence or bullet (kept with its heading path, FAQ
 question and page). A table under an in-page tab link (the May-August rate sheets caption a table
 only "Regular" under a "Term-Share Certificate Rates" tab) takes the tab label as part of its
-caption, so its rows still name the product. Each row remembers its page, the page kind, the page's printed byline date
-(news, blog) and the snapshot it came from. History is never thrown away: rows are stored once per
-distinct page version, and the site *as it stood on a date* is the newest version of every page at or
-before that date (a page that drops out of a later crawl keeps its last content).
+caption, so its rows still name the product. The tab label is not among the words the matcher
+scores, so it does not pull a sibling tab's table into a Share Savings question. Each row remembers
+its page, the page kind, the page's printed byline date (news, blog) and the snapshot it came from.
+History is never thrown away: rows are stored once per distinct page version, and the site *as it
+stood on a date* is the newest version of every page at or before that date (a page that drops out
+of a later crawl keeps its last content).
 
 Answering never asks anything to "pick the right number". It finds the rows that are about the
 question, lets the written truth rules below decide which of them is true, and phrases the answer
@@ -34,10 +36,13 @@ byte-identical text and sources every time (checked across processes with differ
    the regular special, not the jumbo or IRA one. The same goes for a product's distinguishing name
    words when a plainer product of the same term competes: "12-month certificate" means the regular
    certificate, not the student one. A variant the question names wins over rows without it when
-   any row carries it ("IRA certificate rate" answers the IRA rows). A question naming IRA, Roth or
-   Traditional is answered only by rows whose caption, label or section carries those words, so an
-   IRA term the site does not list is refused rather than answered by the plain certificate of that
-   term ("12-month IRA certificate" when only 18-, 36- and 60-month IRAs exist). A question asking for a
+   any row carries it ("IRA certificate rate" answers the IRA rows). A question naming IRA or Roth
+   (or Traditional together with IRA or retirement) is answered only by table rows whose caption,
+   label or section, or passages whose text or section, carries those words, so an IRA term the site
+   does not list is refused rather than answered by the plain certificate of that term ("12-month IRA
+   certificate" when only 18-, 36- and 60-month IRAs exist), and an IRA money market question is not
+   answered by a plain money market promotion. "Traditional 30 year fixed home loan" is a mortgage
+   question, not an IRA one. A question asking for a
    rate ("rate", "APY", "what does it earn?") is answered only from rows that state a percentage;
    a dollar amount is read as a fee only when its label or column says fee, cost, price or charge.
    A list question ("What are the certificate rates?") is answered from the official page of the
@@ -187,10 +192,11 @@ unless noted:
   certificate) can still surface in a plain question's answer.
 - List and catalogue answers decide which rows belong to the asked product with word-overlap rules,
   so an unusual wording can pull in or leave out a sibling product.
-- A conflict note can call a copy that states fewer figures a "different figure" even when the
-  figures it does state agree.
 - For IRA, Roth and Traditional questions the system now refuses when no IRA row covers the term
   (for example the site lists no 12-month IRA certificate); other product families have no such guard.
+- As of May-August a plain "money market rate" question answers the Achieve Money Market rows, not
+  Investor's Choice: the rate sheets of that time name Investor's Choice as a money market only in
+  its tab label, which the matcher does not score (reproduced on the real snapshots).
 
 ## Optional AI steps (planned, measured follow-up)
 

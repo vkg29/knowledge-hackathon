@@ -105,8 +105,8 @@ class Answerer:
         return hit / total if total else 1.0
 
     def _own_terms(self, row: Row) -> frozenset:
-        """A row's own words; for table rows the caption is part of the row."""
-        text = row.text + (" " + row.subject if row.kind == "table" else "")
+        """A row's own words; for table rows the caption and tab are part of the row."""
+        text = row.text + (f" {row.subject} {row.tab}" if row.kind == "table" else "")
         return frozenset(with_prefixes(tokens(text)))
 
     def _names_product(self, q: Question, row: Row, best: Row) -> bool:
@@ -214,7 +214,7 @@ class Answerer:
         allowed = frozenset(rid for rid in view if rows[rid].kind in ("text", "hours"))
         scored = []
         for s, row in self._scored(q, allowed):
-            if not is_live(row, on_date):
+            if not is_live(row, on_date) or not _names_account_kind(q, row):
                 continue
             if need_percent and not _RATE_VALUE.search(row.text):
                 continue
@@ -374,14 +374,20 @@ def _compatible(q: Question, row: Row) -> bool:
 
 
 _RATE_FAMILY = ("rate", "dividend rate", "APY", "APR")
-_ACCOUNT_KINDS = frozenset(stem(w) for w in ("ira", "roth", "traditional"))
+_ACCOUNT_KINDS = frozenset(stem(w) for w in ("ira", "roth"))
+_RETIREMENT = frozenset(stem(w) for w in ("ira", "retirement"))
+_TRADITIONAL = stem("traditional")
 
 
 def _names_account_kind(q: Question, row: Row) -> bool:
-    """Does the row's caption, label or section carry every account kind (IRA, Roth, Traditional)
-    the question names?"""
+    """Does the row carry every account kind the question names: IRA, Roth, and Traditional when the
+    question is about retirement ('traditional IRA', not a 'traditional 30 year fixed home loan')?
+    A table row carries it in its caption, label or section, a passage in its text or section."""
     asked = _ACCOUNT_KINDS.intersection(q.key_words)
-    return not asked or asked <= set(tokens(f"{row.caption} {row.label} {row.section}"))
+    if _TRADITIONAL in q.key_words and _RETIREMENT.intersection(q.key_words):
+        asked |= {_TRADITIONAL}
+    where = f"{row.caption} {row.label}" if row.kind == "table" else row.text
+    return not asked or asked <= set(tokens(f"{where} {row.section}"))
 
 
 def _tightest_tier(cands: list) -> list:

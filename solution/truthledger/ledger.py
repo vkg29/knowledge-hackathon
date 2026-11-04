@@ -50,6 +50,7 @@ class Row:
     qual_text: str = ""
     block: int = -1
     pos: int = 0                 # position among the page version's rows
+    tab: str = ""                # in-page tab a table row sits under (names the product, not scored)
 
     @property
     def authority(self) -> int:
@@ -121,7 +122,7 @@ class Ledger:
     def _row(self, raw: RawRow, v: PageVersion) -> Row:
         row = Row(len(self.rows), raw.kind, raw.subject, raw.text, raw.section, raw.values, raw.quals,
                   raw.effective, raw.links, v, ends_on(raw.text), raw.label, raw.caption, raw.qual_text,
-                  raw.block)
+                  raw.block, tab=raw.tab)
         self.rows.append(row)
         return row
 

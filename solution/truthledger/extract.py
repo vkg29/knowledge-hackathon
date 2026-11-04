@@ -53,6 +53,7 @@ class RawRow:
     caption: str = ""             # table caption ('Special Certificates')
     qual_text: str = ""           # qualifier cells as printed ('60 Months')
     block: int = -1               # index of the source line block (sentences of one paragraph share it)
+    tab: str = ""                 # in-page tab the table sits under ('Term-Share Certificate Rates')
 
 
 @dataclass
@@ -123,7 +124,7 @@ def _metric_name(header: str, cell: str) -> Optional[str]:
     return None
 
 
-def _table_rows(block: _Block, caption: list[str], section: str, effective: Optional[str]) -> list[RawRow]:
+def _table_rows(block: _Block, caption: list[str], section: str, effective: Optional[str], tab: str = "") -> list[RawRow]:
     rows = block.rows
     if len(rows) < 2:
         return []
@@ -147,13 +148,13 @@ def _table_rows(block: _Block, caption: list[str], section: str, effective: Opti
                 qual_cells.append((head, cell))
         if not any(percents(v) for _, v in values) and not any(m == "fee" for m, _ in values):
             continue
-        quals = parse_row_qualifiers(label, qual_cells, caption)
+        quals = parse_row_qualifiers(label, qual_cells, ([tab] if tab else []) + caption)
         qual_text = ", ".join(c for h, c in qual_cells if not re.search(r"min\.? to", h, re.I))
         subject = " > ".join(caption + [label])
         vtext = ", ".join(f"{v} {m}" for m, v in values if m not in ("payment example", "points"))
         text = f"{label}{' (' + qual_text + ')' if qual_text else ''}: {vtext}"
         out.append(RawRow("table", subject, text, section, tuple(values), quals, effective,
-                          label=label, caption=caption[-1] if caption else "", qual_text=qual_text))
+                          label=label, caption=caption[-1] if caption else tab, qual_text=qual_text, tab=tab))
     return out
 
 
@@ -288,9 +289,7 @@ def extract_rows(markdown: str) -> list[RawRow]:
             # A table captioned only 'Regular' under a 'Term-Share Certificate Rates' tab is a
             # regular certificate table: the tab names the product, like a caption line above it.
             caption = _caption(blocks, i)
-            if tab and tab not in caption:
-                caption = [tab] + caption
-            out.extend(_table_rows(b, caption, section, _table_effective(blocks, i)))
+            out.extend(_table_rows(b, caption, section, _table_effective(blocks, i), "" if tab in caption else tab))
             i += 1
             continue
         # Branch hours: a "Lobby" / "Drive-up" label followed by day: time lines.

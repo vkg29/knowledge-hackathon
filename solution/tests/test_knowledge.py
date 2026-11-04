@@ -421,6 +421,52 @@ Regular
 **Rates are effective as of 03/03/2026 and are subject to change without notice.**
 """
 
+# The May-August 2026 savings page: Share Savings and the certificate specials sit under sibling tabs,
+# and the specials carry the newer effective date.
+TABBED_SAVINGS = """# Save Your Money
+
+## Savings Account Rates
+
+- [Savings Account Rates](https://cu.example/savings#)
+
+Share Savings Account
+
+| Account Type | Balance Tier | Dividend Rate | APY |
+| --- | --- | --- | --- |
+| Share Savings | $25,000+ | 0.20% | 0.20% |
+| Share Savings | $0.00 - $24,999.99 | 0.10% | 0.10% |
+
+Rates are effective as of 03/01/2026 and are subject to change without notice.
+
+- [Term-Share Certificate Rates](https://cu.example/savings#)
+
+Special
+
+| Term | Dividend Rate | APY | Min. to Earn |
+| --- | --- | --- | --- |
+| 10 Month Fixed Certificate Special | 3.76% | 3.80% | $1,000 |
+| 25 Month Fixed Certificate Special | 3.57% | 3.60% | $1,000 |
+
+Rates are effective as of 05/01/2026 and are subject to change without notice.
+"""
+
+HOME_LOANS = """# Home loans
+
+Purchase
+
+| Loan Type | Rate | APR | Points |
+| --- | --- | --- | --- |
+| 30-Year Fixed Conventional $832,750 or less | 7.25% | 7.29% | 0.000 |
+| 15-Year Fixed Conventional $832,750 or less | 6.50% | 6.60% | 0.000 |
+
+Rates are effective as of 09/01/2026 and are subject to change without notice.
+"""
+
+EARN_MORE = """# Earn more
+
+Open a new Achieve Money Market Account with $25,000 in qualifying funds to earn an introductory 4.00% dividend rate for 6 months.
+"""
+
 PERSONAL_LOAN = """# Personal Loans
 
 For a $1,500 loan for a term of 12 months with a 8.95% APR, the monthly payment will be $131.14.
@@ -523,6 +569,23 @@ class TruthRules(unittest.TestCase):
         self.assertTrue(six.confident)
         self.assertIn("3.40%", six.text)
         self.assertIn("2.55%", ks.answer("What is the 12-month business certificate APY?", as_of="2026-05-15").text)
+
+    def test_tab_label_does_not_make_a_sibling_tab_answer_a_savings_question(self):
+        ks = system(snap("01_2026-05-12_base", "2026-05-12", {"/savings": TABBED_SAVINGS}),
+                    snap("02_2026-09-28_latest", "2026-09-28", {"/savings": SAVINGS_TABLE}))
+        for q in ("What is the Share Savings rate?", "What rate does Share Savings pay?"):
+            ans = ks.answer(q, as_of="2026-05-15")
+            self.assertIn("0.20%", ans.text, q)
+            for wrong in ("3.80%", "3.60%"):
+                self.assertNotIn(wrong, ans.text, q)
+        self.assertIn("3.80%", ks.answer("What is the 10-month certificate special rate?", as_of="2026-05-15").text)
+
+    def test_traditional_home_loan_is_not_an_ira_question(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/home-loans": HOME_LOANS, "/ira": REGULAR_IRAS}))
+        ans = ks.answer("What's the rate on a traditional 30 year fixed home loan?")
+        self.assertTrue(ans.confident)
+        self.assertEqual(numbers(ans.text), ["7.25%", "7.29%"])
+        self.assertEqual(numbers(ks.answer("What is the 18-month traditional IRA rate?").text), ["2.68%", "2.70%"])
 
 
 class Authority(unittest.TestCase):
@@ -721,6 +784,12 @@ class Refusals(unittest.TestCase):
         self.assertEqual(numbers(ks.answer("What is the 18-month Roth IRA rate?").text), ["2.68%", "2.70%"])
         self.assertEqual(sorted(set(numbers(ks.answer("What is the 18-month IRA certificate rate?").text))), ["2.68%", "2.70%"])
         self.assertEqual(numbers(ks.answer("What is the 12-month certificate rate?").text), ["2.88%", "2.90%"])
+
+    def test_ira_question_is_not_answered_from_a_non_ira_passage(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {
+            "/rates": MONEY_MARKET, "/ira": IRA_RATES, "/earn-more": EARN_MORE}))
+        self.assert_refused(ks.answer("What is the IRA money market rate?"))
+        self.assertIn("0.40%", ks.answer("What is the money market rate?").text)
 
     def test_label_value_lines_are_answered(self):
         self.assertIn("123456789", self.ks.answer("What is the routing number?").text)
