@@ -19,20 +19,28 @@ python3.11 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 python harness/run_eval.py --submission solution --eval eval/public_eval.jsonl
 python harness/run_eval.py --submission solution --eval eval/heldout_eval.jsonl      # our held-out set 1
-python harness/run_eval.py --submission solution --eval eval/heldout_v2_eval.jsonl   # our held-out set 2
-python harness/run_eval.py --submission solution --eval eval/heldout_v3_eval.jsonl   # our held-out set 3
+python harness/run_eval.py --submission solution --eval eval/heldout_v2_eval.jsonl   # set 2: rewordings of the public questions
+python harness/run_eval.py --submission solution --eval eval/heldout_v3_eval.jsonl   # set 3: new phrasings and facts
+python harness/run_eval.py --submission solution --eval eval/heldout_v4_eval.jsonl   # set 4: what changed, relative dates, renamed tiers
+python harness/run_eval.py --submission solution --eval eval/heldout_v5_eval.jsonl   # set 5: fresh rewordings
 python -m unittest discover -s solution/tests -v                                     # unit tests
 ```
 
 The first eval run unpacks the zips into `snapshots/` (ignored by git). Add
-`--conflicts-gold <file>` to score `conflicts()` against a gold list.
+`--conflicts-gold <file>` to score `conflicts()` against a gold list, for example
+`--conflicts-gold eval/conflicts_guess.json` (our 9-item guess; the kit ships no gold for the real data),
+and run the kit's own fixture with
+`python harness/run_eval.py --submission solution --snapshots harness/selftest/snapshots --eval harness/selftest/eval.jsonl --conflicts-gold harness/selftest/conflicts_gold.json`.
+
+CI (`.github/workflows/ci.yml`) runs the unit tests and `ruff check .` on Python 3.11; the eval sets
+need the snapshots, so they run locally only.
 
 ## Layout
 
 ```
 solution/            the submission (solution.py, truthledger/ package, tests/, requirements.txt)
 harness/             the kit's scorer and contract (unchanged)
-eval/                public_eval.jsonl (kit) + heldout_eval.jsonl, heldout_v2/v3_eval.jsonl (ours)
+eval/                public_eval.jsonl (kit) + heldout_eval.jsonl, heldout_v2..v5_eval.jsonl and conflicts_guess.json (ours)
 starter/             the kit's naive starter (unchanged)
 snapshots/README.md  what each snapshot is (the snapshot folders themselves are not committed)
 ```
