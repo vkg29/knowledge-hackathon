@@ -136,7 +136,7 @@ def parse_row_qualifiers(label: str, qual_cells: list[tuple[str, str]], caption:
 
 def _is_model_year(m: re.Match) -> bool:
     window = m.string[max(0, m.start() - 30): m.end() + 30].lower()
-    return bool(re.search(r"model|vehicle|car|truck|auto|motorcycle", window))
+    return bool(re.search(r"\b(models?|vehicles?|cars?|trucks?|autos?|automobiles?|motorcycles?)\b", window))
 
 
 def strip_model_years(text: str) -> str:

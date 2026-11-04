@@ -325,6 +325,10 @@ class IdentityMatching(unittest.TestCase):
         self.assertIsNone(parse("Does the APY go up if I deposit $2000?", "2026-09-28").change)
         self.assertEqual(parse("Did the 60-month APR for a 2023 car go up?", "2026-09-28").change, "history")
         self.assertEqual(parse("Is the 60-month APR lower than in May 2026?", "2026-09-28").change, "history")
+        card = parse("What was the Visa credit card APR in 2025?", "2026-09-28")
+        self.assertEqual((card.year, card.quals.years), (2025, None))   # 'card' is not a vehicle word
+        self.assertEqual(parse("Is the credit card APR lower than in 2025?", "2026-09-28").change, "history")
+        self.assertEqual(parse("Does autopay lower the APR on a 2024 loan?", "2026-09-28").quals.years, None)
 
     def test_unnamed_table_inherits_its_pages_name_and_landing_page_copy_joins_it(self):
         ks = system(snap("01_2026-05-12_a", "2026-05-12", {"/rates": OLD_CHECKING, "/checking-offer-lp": CHECKING_PROMO}),
