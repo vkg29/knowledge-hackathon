@@ -172,15 +172,16 @@ request still unanswered after 0.9 s is sent a second time and the first reply w
 which cuts the slow tail that decides p95. A check call while loading (untimed) opens the connection
 and switches the AI step off with a clear message if the key or network does not work; five failed calls
 in a row during answering also switch it off for the run. Measured with the key on over all seven sets
-(223 questions, two runs): the AI step itself takes 0.83-0.85 s at p50, 1.28-1.39 s at p95, at most
+(223 questions, two traced runs): the AI step itself takes 0.83-0.85 s at p50, 1.28-1.39 s at p95, at most
 1.91 s; 2-3% of questions hit the deadline and get the rules' answer. The harness p95 per set is
-1.05-1.92 s.
+1.01-1.92 s.
 
 **Stability.** Haiku 5.5 does not accept a `temperature` setting (sampling parameters return a 400), so
 determinism comes from elsewhere: every question's AI result (including a fallback) is cached for the
 life of the process, so a repeat gives the identical answer (repeat consistency 1.00 on every set), and
 the rules, not the model, produce every answer. Across separate runs the model can word a restatement
-differently; two full key-on runs gave identical scores on every set.
+differently; three full key-on runs gave identical scores on every set but v6 (one question, see
+Scores).
 
 **Cost.** About $0.02 for a full run of all seven sets (223 questions, about 1.4 calls per question
 including hedges and the load-time checks: about 8k uncached input, 16k output and 820k cached input
@@ -237,15 +238,17 @@ public set and v1-v5 is byte-identical to the previous stage.
 |---|---|---|---|---|
 | Public practice set (kit) | 40 | 0.920 | 0.920 | 0.04 / 1.05-1.92 s |
 | Held-out v1 (reworded + new) | 40 | 0.967 | 0.967 | 0.05 / 1.58-1.73 s |
-| Held-out v2 (rewordings of the public questions) | 25 | 1.000 | 1.000 | 0.04 / 1.71-1.91 s |
+| Held-out v2 (rewordings of the public questions) | 25 | 1.000 | 1.000 | 0.04 / 1.15-1.91 s |
 | Held-out v3 (new phrasings and facts) | 25 | 0.972 | 0.972 | 0.02 / 1.62-1.91 s |
 | Held-out v4 (what changed, relative dates, renamed tiers, IRA / money market) | 34 | 1.000 | 1.000 | 0.07 / 1.01-1.34 s |
-| Held-out v5 (fresh rewordings) | 27 | 1.000 | 1.000 | 0.05 / 1.10-1.12 s |
-| Held-out v6 (slang, typos, indirect phrasing, comparisons, calendar vs model year) | 32 | 0.344 | **0.875** | 0.08 / 1.05-1.06 s |
+| Held-out v5 (fresh rewordings) | 27 | 1.000 | 1.000 | 0.05 / 1.10-1.13 s |
+| Held-out v6 (slang, typos, indirect phrasing, comparisons, calendar vs model year) | 32 | 0.344 | **0.844-0.875** | 0.08 / 1.05-1.06 s |
 | Kit selftest fixture (with its conflicts gold) | 5 | 1.000 (final 1.000) | 1.000 (final 1.000) | <0.01 / 0.94 s |
 
-Key-on figures are from two consecutive full runs, which gave identical scores on every set; the
-latency range covers both. Zero stale-trap hits and zero errors on every set, consistency 1.00 on every
+Key-on figures are from three full runs of the final code: identical scores on every set except v6,
+where one run lost one question (the model wrote "Regular IRA" for "Roth IRA", the faithfulness check
+rejected the restatement, and the rules refused the original wording rather than answer a different
+tier); the latency range covers all three. Zero stale-trap hits and zero errors on every set, consistency 1.00 on every
 set. Ingest of all five snapshots takes about 17 s without a key and about 22 s with one (a check
 call after each snapshot).
 
@@ -292,7 +295,7 @@ gold is unknown (39 entries submitted).
   related passage instead, with or without the key.
 - **Without a key**, slang, typos, comparisons and a calendar year next to a vehicle word ("the auto loan
   rate in 2025" is read as a model year) are handled as in the previous stage; with the key, the AI step
-  covers them (v6: 0.344 off, 0.875 on).
+  covers them (v6: 0.344 off, 0.844-0.875 on).
 - **AI step variance.** Across separate runs the model may word a restatement differently; within a run
   every answer is cached. A question whose AI call misses the 1.9 s deadline (2-3% measured) gets the
   rules' answer to the original wording.
