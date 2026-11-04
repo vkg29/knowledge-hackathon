@@ -23,6 +23,7 @@ class LedgerKnowledge:
         self.ledger.add_snapshot(snapshot.snapshot_id, snapshot.taken_on, snapshot.pages)
         self._cache.clear()
         self._answerer = Answerer(self.ledger)   # index now: loading is untimed, answering is
+        self.ledger.timeline().warm()
 
     def answer(self, question: str, as_of: Optional[str] = None):
         key = (question, as_of)

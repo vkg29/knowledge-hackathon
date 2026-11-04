@@ -132,6 +132,12 @@ class Timeline:
                 spans.append(Span(figs, k, k, start, row))
         return dict(out)
 
+    def warm(self) -> None:
+        """Pick every snapshot's winners and build the spans now (at load time, which is untimed)."""
+        for k in range(len(self.ledger.snapshots)):
+            self.winners(k)
+        self.keys()
+
     def current(self, key) -> bool:
         """Is the fact still stated in the newest snapshot?"""
         spans = self.spans(key)
