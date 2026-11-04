@@ -269,7 +269,7 @@ questions with the general rules above (service questions, newest dated statemen
 - `query.py` parses a question (subject words, names, family, product words, kinds, qualifiers,
   metric, change intent and period, the year or date asked about, expected answer shape);
   `matcher.py` is the local lexical matcher; `answer.py` routes the question (rate table, change
-  history, eligibility, prose, hours, link), applies the rules and phrases the result.
+  history, eligibility, service, prose, hours, link), applies the rules and phrases the result.
 - `hooks.py` is the seam for optional AI steps (no-op by default); `ai.py` is the Claude
   implementation (question understanding, reply validation, deadline and hedging), with its
   instructions in `understand_prompt.txt`; `system.py` gates its use, answers comparisons and runs
