@@ -105,8 +105,8 @@ class Answerer:
         return hit / total if total else 1.0
 
     def _own_terms(self, row: Row) -> frozenset:
-        """A row's own words; for table rows the caption and tab are part of the row."""
-        text = row.text + (f" {row.subject} {row.tab}" if row.kind == "table" else "")
+        """A row's own words; for table rows the caption is part of the row."""
+        text = row.text + (" " + row.subject if row.kind == "table" else "")
         return frozenset(with_prefixes(tokens(text)))
 
     def _names_product(self, q: Question, row: Row, best: Row) -> bool:

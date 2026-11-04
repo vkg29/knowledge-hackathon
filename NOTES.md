@@ -14,12 +14,10 @@ variant, every value column such as dividend rate / APY / rate / APR / fee / min
 per branch-hours block, and one row per prose sentence or bullet (kept with its heading path, FAQ
 question and page). A table under an in-page tab link (the May-August rate sheets caption a table
 only "Regular" under a "Term-Share Certificate Rates" tab) takes the tab label as part of its
-caption, so its rows still name the product. The tab label is not among the words the matcher
-scores, so it does not pull a sibling tab's table into a Share Savings question. Each row remembers
-its page, the page kind, the page's printed byline date (news, blog) and the snapshot it came from.
-History is never thrown away: rows are stored once per distinct page version, and the site *as it
-stood on a date* is the newest version of every page at or before that date (a page that drops out
-of a later crawl keeps its last content).
+caption, so its rows still name the product. Each row remembers its page, the page kind, the page's printed byline date
+(news, blog) and the snapshot it came from. History is never thrown away: rows are stored once per
+distinct page version, and the site *as it stood on a date* is the newest version of every page at or
+before that date (a page that drops out of a later crawl keeps its last content).
 
 Answering never asks anything to "pick the right number". It finds the rows that are about the
 question, lets the written truth rules below decide which of them is true, and phrases the answer
@@ -194,9 +192,11 @@ unless noted:
   so an unusual wording can pull in or leave out a sibling product.
 - For IRA, Roth and Traditional questions the system now refuses when no IRA row covers the term
   (for example the site lists no 12-month IRA certificate); other product families have no such guard.
-- As of May-August a plain "money market rate" question answers the Achieve Money Market rows, not
-  Investor's Choice: the rate sheets of that time name Investor's Choice as a money market only in
-  its tab label, which the matcher does not score (reproduced on the real snapshots).
+- On the May-August rate sheets that carry tab labels, a tab label can lift another product's table:
+  an as-of Share Savings question can answer the certificate specials that sit under a
+  "Term-Share Certificate Rates" tab. Some money market products on those sheets are named only by
+  their tab, so as-of money market answers depend on the tab text (reproduced on the real snapshots).
+  Answers for the latest snapshot are unaffected because the September pages have no tabs.
 
 ## Optional AI steps (planned, measured follow-up)
 

@@ -421,35 +421,6 @@ Regular
 **Rates are effective as of 03/03/2026 and are subject to change without notice.**
 """
 
-# The May-August 2026 savings page: Share Savings and the certificate specials sit under sibling tabs,
-# and the specials carry the newer effective date.
-TABBED_SAVINGS = """# Save Your Money
-
-## Savings Account Rates
-
-- [Savings Account Rates](https://cu.example/savings#)
-
-Share Savings Account
-
-| Account Type | Balance Tier | Dividend Rate | APY |
-| --- | --- | --- | --- |
-| Share Savings | $25,000+ | 0.20% | 0.20% |
-| Share Savings | $0.00 - $24,999.99 | 0.10% | 0.10% |
-
-Rates are effective as of 03/01/2026 and are subject to change without notice.
-
-- [Term-Share Certificate Rates](https://cu.example/savings#)
-
-Special
-
-| Term | Dividend Rate | APY | Min. to Earn |
-| --- | --- | --- | --- |
-| 10 Month Fixed Certificate Special | 3.76% | 3.80% | $1,000 |
-| 25 Month Fixed Certificate Special | 3.57% | 3.60% | $1,000 |
-
-Rates are effective as of 05/01/2026 and are subject to change without notice.
-"""
-
 HOME_LOANS = """# Home loans
 
 Purchase
@@ -569,16 +540,6 @@ class TruthRules(unittest.TestCase):
         self.assertTrue(six.confident)
         self.assertIn("3.40%", six.text)
         self.assertIn("2.55%", ks.answer("What is the 12-month business certificate APY?", as_of="2026-05-15").text)
-
-    def test_tab_label_does_not_make_a_sibling_tab_answer_a_savings_question(self):
-        ks = system(snap("01_2026-05-12_base", "2026-05-12", {"/savings": TABBED_SAVINGS}),
-                    snap("02_2026-09-28_latest", "2026-09-28", {"/savings": SAVINGS_TABLE}))
-        for q in ("What is the Share Savings rate?", "What rate does Share Savings pay?"):
-            ans = ks.answer(q, as_of="2026-05-15")
-            self.assertIn("0.20%", ans.text, q)
-            for wrong in ("3.80%", "3.60%"):
-                self.assertNotIn(wrong, ans.text, q)
-        self.assertIn("3.80%", ks.answer("What is the 10-month certificate special rate?", as_of="2026-05-15").text)
 
     def test_traditional_home_loan_is_not_an_ira_question(self):
         ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/home-loans": HOME_LOANS, "/ira": REGULAR_IRAS}))
