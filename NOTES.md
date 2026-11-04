@@ -147,9 +147,6 @@ within a run (see "AI question understanding").
   months ago" is 28 Jul, "this past May" or "in May" is 31 May 2026, "last year" is 2025, and "over
   the past year" or "in the last year" is the twelve months up to the newest crawl, read as a history.
   A rate question about a year before the first crawl says the site is not known for that year.
-- **No figure from a neighbouring sentence.** An answer quotes the sentences that follow the matched one
-  in the same paragraph, but leaves out any that states a figure the answer's own sentence does not ("What
-  is Dupaco Voices?" no longer quotes a 2022 article's "our more than 145,000 members").
 - **Two passages joined.** An answer that defines an area only by name ("live or work within our
   charter area") is joined with the sentence on the same page that names the places ("You can find us
   in Iowa, Illinois and Wisconsin"). Membership-eligibility questions go straight to the section of the
@@ -308,9 +305,13 @@ ships with the kit, so `final_score` equals accuracy when speed and consistency 
 The acceptance bar for each stage: beat the previous scores without lowering any set, with zero stale
 numbers, with the key on and off. The polish stage (newest dated statement, service questions, official
 page cited first, rate links, the conflicts review) raised public and v7; the final hardening (a repeated
-sentence counts as a copy only when it is about the same product, and an article's lead paragraph adds no
-other product's figure) changed no answer, citation or score on any set with the key off, and none with
-the key on beyond the AI step's run-to-run variance on v6:
+sentence counts as a copy only when it is about the same product as the best match or exactly the product
+the question names, so a family-only question means the plain product, never a named sibling such as
+Credit Coach; on a dated page a sentence that states no rate takes its product from the sentence itself
+only, so boilerplate under any subheading stays one fact; and an article's lead paragraph adds no other
+product's figure and no rate or dollar figure the answer does not already state) changed no answer,
+citation or score on any set with the key off, and none with the key on beyond the AI step's run-to-run
+variance on v6:
 
 | Question set | Questions | Key off: before polish -> final | Key on: before polish -> final | p95 latency off / on (final) |
 |---|---|---|---|---|
@@ -423,6 +424,12 @@ unknown.
   as "What is the APR on the Business Platinum Visa?": the rules read no product in "helok", so the gate
   let the restatement replace the refusal and the answer gave that card's APR (it scores 0, as the refusal
   does; the other runs refused or answered the HELOC rate).
+- **A dated article's matched sentence is quoted as printed.** "What is Dupaco Voices?" is answered with
+  the 2022 ribbon-cutting release's lead plus its matched quote ("... would provide the most economic value
+  to our more than 145,000 members," he said), so that answer still carries the 2022 figure (the newest
+  releases say 179,000). No filter is applied to passages: every variant measured (dropping following
+  sentences with new figures at every answer, on dated pages only, or unless a newer copy agreed) removed
+  current figures instead (Home$tart's "up to $15,000", "the fifth time Forbes recognized Dupaco").
 - **Source credit.** Rate answers cite pages whose rate *tables* hold the winning value; a product page
   that states the value only in prose (the Platinum Visa APR in the credit-cards page's fine print) is not
   added, so "What purchase APR does the Platinum Visa carry?" cites the rate sheet but not

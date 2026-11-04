@@ -126,16 +126,6 @@ class NewestStatement(unittest.TestCase):
         self.assertIn("23", ans.text)
         self.assertNotIn("22", ans.text)
 
-    def test_a_following_sentence_with_an_old_figure_is_left_out(self):
-        voices = release("March 1, 2022", "Member panel meets in the new building",
-                         "The member panel now meets in the new Riverside building downtown. It speaks for our more than "
-                         "145,000 members.", footer=False)
-        news = release("May 5, 2026", "Credit union grows", "Membership has grown to more than 179,000.", footer=False)
-        ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/newsroom/panel": voices, "/newsroom/growth": news}))
-        ans = ks.answer("Where does the member panel meet?")
-        self.assertIn("Riverside building", ans.text)
-        self.assertNotIn("145,000", ans.text)
-
 
 class ProseRates(unittest.TestCase):
     """A figure stated only in prose is read from its most official copy, as the matching sentence."""

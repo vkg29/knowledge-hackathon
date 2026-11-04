@@ -602,13 +602,8 @@ class Answerer:
         return _clean_link(best[1])
 
     def _passage(self, row: Row, limit: int = 420) -> str:
-        """The winning sentence plus the sentences that follow it in the same paragraph or list. A following
-        sentence that states a figure the answer's own sentences do not (an old article's "our more than 145,000
-        members" after the sentence that answers) is left out."""
-        rows = self._passage_rows(row, limit)
-        allowed = set(counts(row.text)) | set(counts(rows[0].text))
-        return " ".join(_sentence(r.text) for r in rows
-                        if r is row or r is rows[0] or not states_count(r.text) or set(counts(r.text)) <= allowed)
+        """The winning sentence plus the sentences that follow it in the same paragraph or list."""
+        return " ".join(_sentence(r.text) for r in self._passage_rows(row, limit))
 
     def _passage_rows(self, row: Row, limit: int = 420) -> list[Row]:
         """The rows `_passage` reads, in page order."""
