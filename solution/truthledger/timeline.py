@@ -18,7 +18,9 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlparse
 
+from .catalogue import family_of
 from .rules import is_live, truth_key
 
 RATE_METRICS = ("rate", "dividend rate", "APY", "APR", "fee")
@@ -79,6 +81,7 @@ class Timeline:
         self._winners: dict[tuple, dict] = {}
         self._members: dict[tuple, dict] = {}
         self._spans: Optional[dict] = None
+        self._fit: dict = {}
 
     def key(self, row):
         return self.ids.get(row.rid)
@@ -100,8 +103,19 @@ class Timeline:
         """FactKey -> the row the truth rules pick at snapshot k."""
         on_date = on_date or self.ledger.snapshots[k].taken_on
         if (k, on_date) not in self._winners:
-            self._winners[(k, on_date)] = {key: max(rows, key=truth_key) for key, rows in self.members(k, on_date).items()}
+            self._winners[(k, on_date)] = {key: max(rows, key=lambda r: self._rank(key, r, k))
+                                           for key, rows in self.members(k, on_date).items()}
         return self._winners[(k, on_date)]
+
+    def _rank(self, key, row, k: int) -> tuple:
+        """The truth rules' order (authority, printed date), then a copy the crawl itself saw over one
+        carried forward from an older crawl; among equally official, equally dated copies the page about
+        this product family (a home-loans page for a mortgage row) is cited before a page that embeds it."""
+        t = truth_key(row)
+        if row.page.vid not in self._fit:
+            words = f"{row.page.title.split('|')[0]} {urlparse(row.page.url).path.replace('-', ' ').replace('/', ' ')}"
+            self._fit[row.page.vid] = family_of(words)
+        return t[:2] + (self.ledger.in_crawl(row, k), self._fit[row.page.vid] == key.family) + t[2:]
 
     def winner(self, key, k: int, on_date: Optional[str] = None):
         return self.winners(k, on_date).get(key)
