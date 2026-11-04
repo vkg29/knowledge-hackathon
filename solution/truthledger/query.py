@@ -7,7 +7,7 @@ from typing import Optional
 
 from .catalogue import product_words, question_family
 from .identity import KINDS
-from .qualifiers import Qualifiers, parse_question_qualifiers
+from .qualifiers import PAST_INTRO, Qualifiers, parse_question_qualifiers
 from .text import MONTHS, date_asked, norm, strip_dates
 from .vocab import GENERIC, STOPWORDS, content_tokens, expand, tokens
 
@@ -68,6 +68,7 @@ def parse(question: str, today: Optional[str] = None) -> Question:
     q = question.strip()
     low = norm(q)
     plain = re.sub(r"\bcredit unions?\b", " ", q, flags=re.I)   # "the credit union" means Dupaco itself
+    plain = PAST_INTRO.sub(" ", plain)   # "after the intro period" names what is *not* asked for
     toks = content_tokens(plain)
     metric = None
     if re.search(r"\bapys?\b|annual percentage yield", low):

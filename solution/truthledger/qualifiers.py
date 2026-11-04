@@ -145,7 +145,14 @@ def parse_question_qualifiers(question: str) -> Qualifiers:
     amount = None
     if "$" in q or re.search(r"\d{1,3},\d{3}", q):
         amount = parse_amount_range(re.sub(r"\b(19|20)\d\d\b", "", q))
-    return Qualifiers(parse_terms(question), years, amount, parse_variants(question))
+    variants = parse_variants(question)
+    if "intro" in variants and PAST_INTRO.search(question):
+        variants -= {"intro"}   # "after the intro period" asks for the ongoing rate
+    return Qualifiers(parse_terms(question), years, amount, variants)
+
+
+PAST_INTRO = re.compile(r"\b(after|once|when|beyond|past|following)\b[^.?]{0,20}\b(intro|introductory|promotional)\b[^.?]{0,25}"
+                         r"\b(period|rate|apr|offer|ends?|expires?|is over)\b|\b(intro|introductory)\b[^.?]{0,25}\b(ends|expires|is over)\b", re.I)
 
 
 def terms_match(q: frozenset, row: frozenset) -> Optional[bool]:

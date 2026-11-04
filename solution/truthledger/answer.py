@@ -77,8 +77,12 @@ class Answerer:
             as_of = f"{q.year}-12-31"
             k = self.ledger.snapshot_for(as_of)
             on_date = min(as_of, latest)
-        if q.change and not (q.wants_url or q.hours) and (tabled or q.family):
+        if q.change and not (q.wants_url or q.hours) and (tabled or q.family or q.product & self.product_vocab):
             res = self._change(q, k)
+            if res is not None:
+                return res, k
+        if _ELIGIBILITY_Q.search(q.raw) and not (q.wants_url or q.hours or q.rate_intent):
+            res = self._eligibility(q, k, on_date)
             if res is not None:
                 return res, k
         if q.wants_url:
@@ -202,6 +206,13 @@ class Answerer:
             chosen = [f for f in facts if f[1].family in families and (f[1].kinds - q.kinds) <= extra_ok
                       and (f[1].family is not None or f in band)]
         else:
+            # A question that names no product ('the money market rate') means the one the most official
+            # page lists, among the close candidates, not a promotion's product that repeats its words.
+            if not q.product & self.product_vocab:
+                wide = [f for f in facts if f[0] >= 0.5 * top]
+                level = max(f[2].authority for f in wide)
+                lead = max(f[0] for f in wide if f[2].authority == level)
+                band = [f for f in wide if f[2].authority == level and f[0] >= 0.75 * lead]
             best = max(band, key=lambda f: (truth_key(f[2]), f[0]))
             # Roth and Traditional are parallel versions of one IRA product: an "IRA" question gets both
             loose = _WRAPPERS - q.kinds
@@ -339,7 +350,6 @@ class Answerer:
                 s *= 1.5   # "Routing Number: 273974581" states exactly what was asked
             if q.wants_action and any(set(tokens(a)) & set(q.words) for a, u in row.links if u.startswith("http")):
                 s *= 1.3   # a passage whose button does what the member asked ("Join Dupaco")
-            s *= self._heading_boost(q, row)
             scored.append((s * _PROSE_WEIGHT[row.authority], row))
         if not scored:
             return None
@@ -396,13 +406,19 @@ class Answerer:
         lead = f"The site has no figure for {q.year}. " if q.year else ""
         return Result(lead + " ".join(_sentence(r.text) for r in rows), rows)
 
-    def _heading_boost(self, q: Question, row: Row) -> float:
-        """A membership-eligibility question ('Who can join?', 'Who is eligible to become a member?') is
-        answered by the passage under the site's eligibility heading, not by any page that says
-        'become a member'."""
-        if not _ELIGIBILITY_Q.search(q.raw):
-            return 1.0
-        return 3.0 if _ELIGIBILITY_HEAD.search(row.section.rsplit(" > ", 1)[-1]) else 1.0
+    def _eligibility(self, q: Question, k: int, on_date: str) -> Optional[Result]:
+        """'Who can join?' / 'Who is eligible to become a member?' is answered by the section of the site
+        that says who may join (a heading like 'Who Can Join' or 'You're Eligible to Join If'), the most
+        official copy first, read from its first line and joined with where the area it names is."""
+        sections: dict = defaultdict(list)
+        for r in self.ledger.view(k):
+            if r.kind == "text" and is_live(r, on_date) and _ELIGIBILITY_HEAD.search(r.section.rsplit(" > ", 1)[-1]):
+                sections[(r.page.vid, r.section)].append(r)
+        if not sections:
+            return None
+        rows = max(sections.values(), key=lambda rs: (rs[0].authority, len(rs), -len(rs[0].page.url), -rs[0].page.vid))
+        first = min(rows, key=lambda r: r.pos)
+        return Result(self._join_places(first, self._passage(first)), [first])
 
     def _join_places(self, row: Row, text: str) -> str:
         """A passage that defines an area only by name ('live or work within our charter area') is joined
@@ -537,9 +553,11 @@ def _names_account_kind(q: Question, row: Row) -> bool:
 
 _GONE = "No longer offered:"
 _WRAPPERS = frozenset({"roth", "traditional"})
-_ELIGIBILITY_Q = re.compile(r"\b(who|eligib\w*|qualif\w*|requirements?|criteria)\b.*\b(join|become a member|membership|member)\b|"
-                           r"\b(join|membership)\b.*\b(eligib\w*|qualif\w*|requirements?|criteria)\b", re.I)
-_ELIGIBILITY_HEAD = re.compile(r"\beligib\w*|\bwho can (join|become)|\bfield of membership\b|\bmembership requirements?\b", re.I)
+_ELIGIBILITY_Q = re.compile(r"\b(who|eligib\w*|qualif\w*|requirements?|criteria)\b.{0,40}"
+                           r"\b(join|become an? (\w+ )?member|membership|be an? member)\b|"
+                           r"\b(join|membership)\b.{0,40}\b(eligib\w*|qualif\w*|requirements?|criteria)\b", re.I)
+_ELIGIBILITY_HEAD = re.compile(r"\b(eligib\w*|who can)\b.*\b(join|member\w*)\b|\bfield of membership\b|"
+                              r"\bmembership (requirements?|eligibility)\b", re.I)
 _AREA_TERM = re.compile(r"\b(charter area|field of membership|service area|our (area|communities|footprint)|counties we serve)\b", re.I)
 _STATES = re.compile(r"\b(Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|"
                      r"Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|"
