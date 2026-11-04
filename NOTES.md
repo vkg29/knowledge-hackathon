@@ -209,6 +209,7 @@ gold is unknown (39 entries submitted).
 - **Extraction artefacts** remain in a few long value cells (the May HELOC intro cell reads as a
   sentence with a footnote digit), and a few blog tables get junk identity cards; they hold no rate
   figures that compete with official ones.
+- **Calendar year near a vehicle word:** a past calendar year near a vehicle word, e.g. auto loan rate in 2025, is read as a model year.
 - **Branch hours** exist only inside press releases about individual branches, so general hours are
   summarised from those; a branch with no published hours is refused rather than guessed.
 - The practice item "Get me the rate for the certificate of accounts" has no `must_include`, so it
