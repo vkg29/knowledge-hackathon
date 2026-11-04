@@ -1,9 +1,15 @@
+Set ANTHROPIC_API_KEY for best results; uses Claude via the Anthropic API.
+
 # NOTES
 
-**API keys: none.** The system runs entirely on the machine, makes no network calls (not to the
-credit union's site, not to any model service), and downloads nothing at ingest or answer time. Its
-only dependency is `snowballstemmer` (pure Python). Optional AI steps are planned for later stages
-(see the end of this file); today the system works on rules alone.
+**API keys: one, optional: `ANTHROPIC_API_KEY`** (the same variable the kit's scorer reads for its
+`--judge` mode). With it, the system calls **Claude Haiku 5.5 (`claude-haiku-5-5`) through the
+Anthropic API**, a paid API, once per question to understand oddly worded questions (see "AI
+question understanding" below); it prints `AI steps: ON (...)` when it loads. Without it, it prints
+`AI steps: OFF (no key found ...)` and answers with rules alone, exactly as the previous stage did.
+Either way the site's own snapshots are the only source of facts: no call goes to the credit union's
+website, and the model never sees or chooses a figure. Dependencies: `snowballstemmer` (pure Python)
+and the official `anthropic` SDK.
 
 ## The idea: identity first, then a timeline, then the truth rules
 
@@ -50,8 +56,9 @@ Then, still at load time, three things are computed once for the whole ledger:
 Answering never asks anything to "pick the right number". It parses the question onto the same
 fields (family, product words, kinds, term, model year, amount, metric, the date asked about), uses
 the lexical matcher only to *find* candidate identities, takes each identity's winner, and phrases
-the answer straight from the winning rows. The same question gives byte-identical text and sources
-every time (checked across processes with different hash seeds).
+the answer straight from the winning rows. Without a key the same question gives byte-identical text
+and sources every time (checked across processes with different hash seeds); with a key, every time
+within a run (see "AI question understanding").
 
 ## How it decides what is current (the truth rules)
 
@@ -128,6 +135,72 @@ under twin products (a special and its IRA copy) are reported once. Boilerplate 
 five or more dated pages (or ordinal counts like "fourth"/"fifth" time) with different figures are
 listed too. On the full data it reports 39 entries.
 
+## AI question understanding (key on)
+
+The rules answer well when a question uses the site's words, and refuse (or misread) slang, typos,
+indirect phrasing, head-to-head comparisons and "the auto loan rate in 2025" (a calendar year read as a
+vehicle model year). AI is used only for that reading step, and never as the judge of which number is
+true:
+
+1. **Restate.** For each question, Claude Haiku 5.5 gets a short instruction (`truthledger/understand_prompt.txt`)
+   plus the site's own product names, built from the ledger's fact identities after each ingest (no
+   figures). It returns JSON: the question restated in the plain wording the rule parser reads ("whats the
+   apy on ur 1 yr cd rn" -> "What is the APY on the 12-month certificate?"), one standalone question per
+   product for a comparison, and whether a year is a calendar year or a vehicle model year. The reply is
+   validated here: malformed JSON, more than three questions, a year the member never wrote, or any number
+   the member did not write (other than a term in years written in months or the reverse, "a year" ->
+   12 months, and $15k -> $15,000) and the restatement is thrown away. That last check caught the model
+   turning "30-year" into "20-year".
+2. **Gate.** The rules answer the member's own words while the AI call is in flight. The restatement
+   replaces that answer only when the rules could not read the original: it is a comparison; the rules
+   would read a calendar year as a model year; the restatement is a change-over-time question (only when
+   the member's own words mention time or change, such as "since May", "did" or "went up") or a rate
+   question while the rules read the original as something else; or the rules found nothing. It must
+   keep what the rules did read (product family, account kinds such as IRA or jumbo, term, balance or
+   loan amount, vehicle model year), it never turns a confident answer into "I don't know" (except a
+   calendar year before the first crawl), and it may overrule a refusal only with a rate-table answer
+   (prose matching is too loose to beat a refusal: "a 7-year CD?" restated as "an 84-month certificate?"
+   would otherwise match a boat-loan sentence). The first unguarded version answered every restatement
+   and lowered the public set from 0.920 to 0.796; the gate is why key-on never scores below key-off.
+3. **The ledger answers.** The rules answer the restated question(s) exactly as they answer any other:
+   the same identities, winners, timelines and truth rules. A comparison is each product answered on its
+   own (without the jumbo sibling), then joined, with "The X has the higher APY" when both sides are single
+   facts of the same measure. **Final check:** every number in a joined answer must be one the rule-built
+   answers stated, otherwise the original question's rule answer is used. The model never writes answer
+   text (the `phrase` hook stays off), so no figure in any answer comes from the model.
+
+**Speed.** Thinking off, effort low, the prompt cached (about 2,600 tokens, read from the cache after the
+first call), plain JSON instead of the API's structured-output mode (which measured about 0.8 s slower per
+call; the reply is validated here instead), no SDK retries, a hard deadline of 1.9 s per question, and
+the AI call runs while the rules answer the original wording rather than after it. A request still
+unanswered after 0.9 s is sent a second time and the first reply wins (a hedged request), which cuts the
+slow tail that decides p95. A check call while loading (untimed) opens the connection and switches the
+AI step off with a clear message if the key or network does not work; five failed calls in a row during
+answering also switch it off for the run. Measured with the key on over all seven sets
+(223 questions): the AI step itself takes 0.87 s at p50, 1.56 s at p95, at most 1.91 s; 5 of 223
+questions (about 2%) hit the deadline and get the rules' answer. The harness p95 per set is 0.97-1.91 s
+(see Scores).
+
+**Stability.** Haiku 5.5 does not accept a `temperature` setting (sampling parameters return a 400), so
+determinism comes from elsewhere: every question's AI result (including a fallback) is cached for the
+life of the process, so a repeat gives the identical answer (repeat consistency 1.00 on every set), and
+the rules, not the model, produce every answer. Across separate runs the model can word a restatement
+differently; three full key-on runs before the last review fixes gave identical scores on every set
+but v6 (one question, see Scores).
+
+**Cost.** About $0.019 for a full run of all seven sets (223 questions, 333 calls including hedges and
+the five load-time checks: 8,194 uncached input, 16,760 output, 861,887 cached input and 10,738
+cache-write tokens), about $0.003-0.004 for the 40 public questions, at Haiku 5.5's $0.10 / $0.50 per
+million input / output tokens.
+
+**Stage 3 (AI reading at load) was not added.** The questions still missed with the key on are not
+table-reading problems: they are prose questions whose right sentence the lexical matcher does not
+rank first (the main phone number, mobile wallets, the Platinum Visa late fee, contact-information
+updates, Forbes recognition), plus two the model restates too loosely ("helok apr?" loses the product
+word, so the refusal stands; "a checking account that actually pays interest" becomes a generic
+checking question). Reading every page with a model at load would mean about 1,500 calls per ingest
+against the graders' rate limits and would not change how passages are ranked.
+
 ## Architecture
 
 `solution/solution.py` builds `truthledger.system.LedgerKnowledge` (the public contract in
@@ -144,7 +217,10 @@ listed too. On the full data it reports 39 entries.
   metric, change intent and period, the year or date asked about, expected answer shape);
   `matcher.py` is the local lexical matcher; `answer.py` routes the question (rate table, change
   history, eligibility, prose, hours, link), applies the rules and phrases the result.
-- `hooks.py` is the seam for optional AI steps (no-op by default).
+- `hooks.py` is the seam for optional AI steps (no-op by default); `ai.py` is the Claude
+  implementation (question understanding, reply validation, deadline and hedging), with its
+  instructions in `understand_prompt.txt`; `system.py` gates its use, answers comparisons and runs
+  the final number check.
 
 **The lexical matcher** is a BM25 index over each row's own words (full weight), its FAQ question or
 question-like heading (0.8) and its heading/caption/page title (0.4), with Snowball stemming, a
@@ -156,23 +232,47 @@ candidate is, and the truth rules say which copy of that fact is true.
 ## Scores
 
 Run from the repository root after copying the kit's `snapshots_zip/` there (see README.md). All
-numbers below are from the kit's own `harness/run_eval.py`; no conflicts gold ships with the kit, so
-`final_score` equals accuracy when speed and consistency are 1.0.
+numbers below are accuracy (`qa_score`) from the kit's own `harness/run_eval.py`; no conflicts gold
+ships with the kit, so `final_score` equals accuracy when speed and consistency are 1.0.
 
-The acceptance bar for this stage: beat the first version on the public practice set, no regression on
-any held-out set, and zero stale numbers. Ties on v1, v2 and v3 meet it (v2 is already at the 1.000 ceiling).
+The acceptance bar for the AI step: with the key on, beat key-off on the public set and the held-out
+reworded sets without lowering any set, with zero stale numbers. With the key off, every answer on the
+public set and v1-v5 is byte-identical to the previous stage.
 
-| Question set | Questions | Merged first version | This stage | Consistency | p95 latency |
-|---|---|---|---|---|---|
-| Public practice set (kit) | 40 | 0.866 | **0.920** | 1.00 | 0.04 s |
-| Held-out v1 (reworded + new) | 40 | 0.967 | 0.967 | 1.00 | 0.05 s |
-| Held-out v2 (rewordings of the public questions) | 25 | 1.000 | 1.000 | 1.00 | 0.04 s |
-| Held-out v3 (new phrasings and facts) | 25 | 0.972 | 0.972 | 1.00 | 0.02 s |
-| Held-out v4 (what changed, relative dates, renamed tiers, IRA / money market) | 34 | 0.368 | 1.000 | 1.00 | 0.07 s |
-| Held-out v5 (fresh rewordings, the final check) | 27 | not run | 1.000 | 1.00 | 0.04 s |
-| Kit selftest fixture (with its conflicts gold) | 5 | 1.000 | 1.000 (final 1.000) | 1.00 | <0.01 s |
+| Question set | Questions | Key off (rules only) | Key on (AI understanding) | p95 latency off / on |
+|---|---|---|---|---|
+| Public practice set (kit) | 40 | 0.920 | 0.920 | 0.04 / 1.64 s |
+| Held-out v1 (reworded + new) | 40 | 0.967 | 0.967 | 0.05 / 1.58 s |
+| Held-out v2 (rewordings of the public questions) | 25 | 1.000 | 1.000 | 0.04 / 1.71 s |
+| Held-out v3 (new phrasings and facts) | 25 | 0.972 | 0.972 | 0.02 / 1.91 s |
+| Held-out v4 (what changed, relative dates, renamed tiers, IRA / money market) | 34 | 1.000 | 1.000 | 0.07 / 1.23 s |
+| Held-out v5 (fresh rewordings) | 27 | 1.000 | 1.000 | 0.05 / 1.78 s |
+| Held-out v6 (slang, typos, indirect phrasing, comparisons, calendar vs model year) | 32 | 0.344 | **0.875** | 0.08 / 0.97 s |
+| Kit selftest fixture (with its conflicts gold) | 5 | 1.000 (final 1.000) | 1.000 (final 1.000) | <0.01 / 0.94 s |
 
-Zero stale-trap hits and zero errors on every set. Ingest of all five snapshots takes about 17 s.
+Key-on figures are from a full run on the final code (after the review fixes to the reply checks and
+the gate: stricter number and faithfulness checks, the AI call overlapped with the rules, no confident
+answer turned into a refusal); an earlier run after the review fixes gave the same scores. With the key
+on, the harness p50 is 0.88-0.91 s and the slowest answer 1.01-1.91 s per set. Three earlier runs,
+before those fixes, gave identical scores on every set except v6 (0.844-0.875), where one run lost one
+question (the model wrote "Regular IRA" for "Roth IRA", the faithfulness check rejected the
+restatement, and the rules refused the original wording rather than answer a different tier). Zero
+stale-trap hits and zero errors on every set, consistency 1.00 on every set. Ingest of all five
+snapshots takes about 17 s without a key and about 21 s with one (a check call after each snapshot).
+
+**The kit's judge mode** (`--judge`, Claude Opus 5.5 grading each answer against the full reference,
+public set): accuracy 0.914 with the key on and 0.914 with it off (the gate leaves the public answers
+unchanged). In judge mode the kit's runner times the judge's own call inside each question's latency,
+so its p95 (4.2 s) is not the system's latency; final score 0.839 with the key on, 0.847 off (speed is
+the only difference), with the 9-item conflicts guess list.
+
+**v6 was written for this stage before any AI code** and run blind: **0.3125 with the key off** (no
+trap hits; slang and typos refused, comparisons answered on one side or refused, "the auto loan rate in
+2025" answered with today's model-year rates) and **0.859 with the key on** on the first, ungated
+version. The key-off v6 score is now 0.344 because the generic "before the first crawl" refusal no
+longer prints a date (a refusal with a number fails the kit's refusal check). Later key-on runs are
+not blind: the gate, the reply checks and the prompt's wording were tuned on these sets, and the
+remaining v6 misses are listed under Stage 3 above.
 
 **Read the held-out numbers with care: only the first run of each set is blind.** v1 scored 0.679 on
 its first run, v2 0.663, v3 0.819 (all three against the first version, in PR 1). v4 was written for
@@ -194,13 +294,19 @@ gold is unknown (39 entries submitted).
 
 ## Known gaps
 
-- **Free-text paraphrase.** Matching is lexical plus a thesaurus. Questions whose words the site does
-  not use still miss: "What recognition has Dupaco received from Forbes?" lands on press-release
-  boilerplate instead of "the fifth time Forbes recognized Dupaco" (the reworded "How many times has
-  Forbes recognized Dupaco?" is answered correctly); "How can I update my contact information?",
-  "What is Dupaco's main phone number?", "Which digital wallets can I load my cards into?" and the
-  Platinum Visa late fee (inside a long fine-print sentence) return a related passage instead. An AI
-  question-understanding step is the next stage's fix.
+- **Free-text paraphrase in prose questions.** Matching is lexical plus a thesaurus, and the AI step
+  does not change prose answers the rules already give (see the gate). "What recognition has Dupaco
+  received from Forbes?" lands on press-release boilerplate instead of "the fifth time Forbes recognized
+  Dupaco" (the reworded "How many times has Forbes recognized Dupaco?" is answered correctly); "How can
+  I update my contact information?", "What is Dupaco's main phone number?", "Which digital wallets can
+  I load my cards into?" and the Platinum Visa late fee (inside a long fine-print sentence) return a
+  related passage instead, with or without the key.
+- **Without a key**, slang, typos, comparisons and a calendar year next to a vehicle word ("the auto loan
+  rate in 2025" is read as a model year) are handled as in the previous stage; with the key, the AI step
+  covers them (v6: 0.344 off, 0.875 on).
+- **AI step variance.** Across separate runs the model may word a restatement differently; within a run
+  every answer is cached. A question whose AI call misses the 1.9 s deadline (about 2% measured) gets the
+  rules' answer to the original wording.
 - **Source credit.** Some correct answers cite a page other than the one the graders list (the
   routing number from the contact page rather than the cash-management page; general lobby hours
   from branch press releases rather than the home page).
@@ -211,22 +317,18 @@ gold is unknown (39 entries submitted).
 - **Extraction artefacts** remain in a few long value cells (the May HELOC intro cell reads as a
   sentence with a footnote digit), and a few blog tables get junk identity cards; they hold no rate
   figures that compete with official ones.
-- **Calendar year near a vehicle word:** a past calendar year near a vehicle word, e.g. auto loan
-  rate in 2025, is read as a model year.
 - **Branch hours** exist only inside press releases about individual branches, so general hours are
   summarised from those; a branch with no published hours is refused rather than guessed.
 - The practice item "Get me the rate for the certificate of accounts" has no `must_include`, so it
   scores 0 for any answer under the kit's scorer (it lists the personal certificate rates).
 
-## Optional AI steps (later stages)
+## Other AI seams (not used)
 
-`truthledger/hooks.py` defines where an LLM can help without ever judging which number is true:
-`rewrite_question(question)` restates oddly worded questions onto the identity fields,
-`extra_rows(page)` turns messy prose or tables into extra ledger rows at ingest (they get identity
-cards and go through the same truth rules), and `phrase(question, text)` rewords the final answer,
-which is only kept if it states exactly the same figures as the rule-built answer. Nothing ships yet;
-each step will be kept only if it raises the score on the public and the held-out sets, using the
-graders' Anthropic key when one is set and falling back to these rules when it is not.
+`truthledger/hooks.py` also defines `extra_rows(page)` (turn messy prose or tables into extra ledger rows
+at ingest; they would get identity cards and go through the same truth rules) and `phrase(question,
+text)` (reword the final answer, kept only if it states exactly the same figures as the rule-built
+answer). Neither is switched on: see "Stage 3" above, and rule-built wording keeps answers fast and
+identical.
 
 ## Data handling
 

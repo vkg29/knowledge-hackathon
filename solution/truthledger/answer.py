@@ -64,9 +64,12 @@ class Answerer:
         self.product_vocab = frozenset(w for key in ledger.identities().values() for w in key.product)
 
     # ---- entry point ---------------------------------------------------------------------
-    def answer(self, question: str, as_of: Optional[str] = None) -> tuple[Result, int]:
+    def answer(self, question: str, as_of: Optional[str] = None, calendar_year: Optional[int] = None,
+               siblings: bool = True) -> tuple[Result, int]:
+        """`calendar_year` and `siblings=False` come from AI question understanding: a year the question
+        asks about as a point in time, and one side of a head-to-head comparison (only the product named)."""
         latest = self.ledger.snapshots[-1].taken_on
-        q = parse(question, today=as_of or latest)
+        q = parse(question, today=as_of or latest, calendar_year=calendar_year)
         if as_of is None and q.as_of_hint and q.as_of_hint < latest:
             as_of = q.as_of_hint
         k = self.ledger.snapshot_for(as_of)
@@ -75,8 +78,8 @@ class Answerer:
         if as_of is None and q.year and tabled and not q.change and q.year < int(latest[:4]):
             first = self.ledger.snapshots[0].taken_on
             if q.year < int(first[:4]):   # before the first crawl: the site as it stood then is not known
-                return Result(f"I can't confirm what was listed in {q.year}: the oldest copy of Dupaco's website I have is "
-                              f"from {long_date(first)}. Please contact Dupaco for older rates.", confident=False), 0
+                return Result(f"I can't confirm what Dupaco listed in {q.year}: every copy of Dupaco's website I have is newer "
+                              f"than that. Please contact Dupaco for older rates.", confident=False), 0
             as_of = f"{q.year}-12-31"
             k = self.ledger.snapshot_for(as_of)
             on_date = min(as_of, latest)
@@ -93,12 +96,16 @@ class Answerer:
         elif q.hours:
             res = self._hours(q, k, on_date)
         elif q.rate_intent:
-            res = self._rate(q, k, on_date) or self._prose(q, k, on_date, need_percent=True)
+            res = self._rate(q, k, on_date, siblings) or self._prose(q, k, on_date, need_percent=True)
         elif q.rate_implied:   # "what does it pay?" still needs a stated rate, not any passage about the product
-            res = self._rate(q, k, on_date) or self._prose(q, k, on_date, need_percent=q.wants_rate)
+            res = self._rate(q, k, on_date, siblings) or self._prose(q, k, on_date, need_percent=q.wants_rate)
         else:
             res = self._prose(q, k, on_date)
         return (res or Result(REFUSAL, confident=False)), k
+
+    def reading(self, question: str, calendar_year: Optional[int] = None) -> Question:
+        """How the rules read a question (used to compare their reading with the AI's restatement)."""
+        return parse(question, today=self.ledger.snapshots[-1].taken_on, calendar_year=calendar_year)
 
     # ---- shared helpers ------------------------------------------------------------------
     def _view(self, k: int) -> frozenset:
@@ -152,8 +159,8 @@ class Answerer:
         return [(s, rows[rid]) for rid, s in self.index.scores(q.words, allowed).items()]
 
     # ---- rates and other table values ----------------------------------------------------
-    def _rate(self, q: Question, k: int, on_date: str) -> Optional[Result]:
-        sel = self._select(q, k, on_date)
+    def _rate(self, q: Question, k: int, on_date: str, siblings: bool = True) -> Optional[Result]:
+        sel = self._select(q, k, on_date, siblings)
         if sel is None:
             return None
         rows, members, winners = sel

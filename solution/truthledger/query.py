@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from .catalogue import product_words, question_family
@@ -73,8 +73,10 @@ class Question:
     year: Optional[int] = None        # calendar year a statement must be about ('in 2024', 'last year')
 
 
-def parse(question: str, today: Optional[str] = None) -> Question:
-    """`today` is the newest crawl's date; relative dates ('last month', 'two months ago') count back from it."""
+def parse(question: str, today: Optional[str] = None, calendar_year: Optional[int] = None) -> Question:
+    """`today` is the newest crawl's date; relative dates ('last month', 'two months ago') count back from it.
+    `calendar_year` comes from AI question understanding: the year the question names is a point in time
+    ('the auto loan rate in 2025'), not a vehicle model year, even next to a vehicle word."""
     q = question.strip()
     low = norm(q)
     plain = re.sub(r"\bcredit unions?\b", " ", q, flags=re.I)   # "the credit union" means Dupaco itself
@@ -103,18 +105,22 @@ def parse(question: str, today: Optional[str] = None) -> Question:
             hours = "drive-up"
         else:
             hours = "any"
-    change, since, until = _change(q, low, today)
+    quals = parse_question_qualifiers(q)
+    if not (calendar_year and quals.years == (calendar_year, calendar_year)):
+        calendar_year = None   # the hint only matters where the rules would read the year as a model year
+    change, since, until = _change(q, low, today, calendar_year)
     as_of_hint = date_asked(q, today) if _PAST.search(low) and not change else None
     dateless = re.sub(r"\b(19|20)\d\d\b|\b(january|february|march|april|may|june|july|august|september|october|"
                       r"november|december)\b(\s+\d{1,2}(st|nd|rd|th)\b)?|\btoday\b", " ", plain, flags=re.I)
     key_words = [t for t in content_tokens(dateless) if t not in GENERIC]
     family = question_family(plain)
-    quals = parse_question_qualifiers(q)
+    if calendar_year:
+        quals = replace(quals, years=None)
     kinds = frozenset(v for v in quals.variants if v in KINDS)
     if "traditional" in kinds and not ({"ira", "roth"} & kinds or re.search(r"\bretirement\b", low)):
         kinds -= {"traditional"}   # 'traditional 30 year fixed home loan' is not an IRA question
     return Question(
-        year=_year_asked(q, today, quals),
+        year=calendar_year or _year_asked(q, today, quals),
         change=change, since=since, until=until,
         family=family,
         product=product_words(dateless, family),
@@ -162,10 +168,11 @@ def _year_asked(q: str, today: Optional[str], quals: Qualifiers) -> Optional[int
     return None
 
 
-def _change(q: str, low: str, today: Optional[str]) -> tuple:
+def _change(q: str, low: str, today: Optional[str], calendar_year: Optional[int] = None) -> tuple:
     """(mode, since, until) for a question about how a fact changed over time."""
     dateless = strip_dates(low)
-    timed = dateless != low or bool(_TIME.search(re.sub(r"\$\s?\d[\d,]*(\.\d+)?", " ", strip_model_years(dateless))))
+    undated = dateless if calendar_year else strip_model_years(dateless)
+    timed = dateless != low or bool(_TIME.search(re.sub(r"\$\s?\d[\d,]*(\.\d+)?", " ", undated)))
     if _WHEN_CHANGED.search(low) and timed:
         mode = "when"
     elif _BEFORE.search(low) and re.search(r"\b(pay|paid|earn|earned|rate|apy|apr|charge|charged|cost)\b", low):
@@ -190,6 +197,15 @@ def _change(q: str, low: str, today: Optional[str]) -> tuple:
     elif today and _TRAILING_YEAR.search(q):
         since = relative_date("a year ago", today)
     return mode, since, until
+
+
+def mentions_time(question: str) -> bool:
+    """The member's own words ask about time or change ('since May', 'did', 'last month', 'went up',
+    'still offered'): only then may a restatement as a change-over-time question replace a current value."""
+    low = question.lower()
+    undated = strip_model_years(strip_dates(low))
+    return bool(strip_dates(low) != low or _TIME.search(undated) or _CHANGE.search(low) or _STILL.search(low)
+                or _BEFORE.search(low))
 
 
 def _period_start(text: str, today: Optional[str]) -> Optional[str]:
