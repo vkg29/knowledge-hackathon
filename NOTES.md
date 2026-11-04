@@ -97,13 +97,15 @@ within a run (see "AI question understanding").
    "181,000"); undated official pages keep the best match. Copies in the exact same wording are gathered
    wherever they rank when they could outrank the best match (a dated copy, or a strictly more official
    one); an undated copy that is no more official counts only when it ranks near the best match. **A copy
-   counts only when it is about the same product as the best match, or about the product the question
+   counts only when it is about the same product as the best match, or exactly the product the question
    names:** "Rates as low as 5.24% APR." on the auto-loans page is never a newer copy of "Rates as low as
-   8.99% APR." on the personal-loans page. A statement's product is read from the nearest context that
-   names one: the sentence itself, then its subheadings, then an undated page's title, headline and
-   address; an article's headline names its story, so it is read only for a sentence that states a rate
-   (press-release boilerplate such as "It has over 600 employees and 22 branch office locations" sits under
-   headlines like "Are reward credit cards worth it?"). Only the product names the site's rate tables use
+   8.99% APR." on the personal-loans page, and a "personal loans" question never takes the Credit Coach
+   page's copy. A statement's product is read from the nearest context that names one: the sentence
+   itself, then an undated page's subheadings, title, headline and address; an article's headline and
+   subheadings name its story, so they are read only for a sentence that states a rate (press-release and
+   blog boilerplate such as "It has over 600 employees and 22 branch office locations" sits under headings
+   like "Are reward credit cards worth it?" or "Choosing the right credit card", and stays one fact settled
+   by its newest dated copy). Only the product names the site's rate tables use
    ("Bright", "Share", "Platinum") tell two products of one family apart. The
    same statement about *different years*
    ("294 employees used VTO in 2023", "256 ... in 2024") is separate facts: the year is a qualifier, and
@@ -145,6 +147,9 @@ within a run (see "AI question understanding").
   months ago" is 28 Jul, "this past May" or "in May" is 31 May 2026, "last year" is 2025, and "over
   the past year" or "in the last year" is the twelve months up to the newest crawl, read as a history.
   A rate question about a year before the first crawl says the site is not known for that year.
+- **No figure from a neighbouring sentence.** An answer quotes the sentences that follow the matched one
+  in the same paragraph, but leaves out any that states a figure the answer's own sentence does not ("What
+  is Dupaco Voices?" no longer quotes a 2022 article's "our more than 145,000 members").
 - **Two passages joined.** An answer that defines an area only by name ("live or work within our
   charter area") is joined with the sentence on the same page that names the places ("You can find us
   in Iowa, Illinois and Wisconsin"). Membership-eligibility questions go straight to the section of the
@@ -307,7 +312,7 @@ sentence counts as a copy only when it is about the same product, and an article
 other product's figure) changed no answer, citation or score on any set with the key off, and none with
 the key on beyond the AI step's run-to-run variance on v6:
 
-| Question set | Questions | Key off: polish -> final | Key on: polish -> final | p95 latency off / on (final) |
+| Question set | Questions | Key off: before polish -> final | Key on: before polish -> final | p95 latency off / on (final) |
 |---|---|---|---|---|
 | Public practice set (kit) | 40 | 0.920 -> **0.969** | 0.920 -> **0.969** | 0.14 / 0.95 s |
 | Held-out v1 (reworded + new) | 40 | 0.967 -> 0.967 | 0.967 -> 0.967 | 0.16 / 1.50 s |
@@ -319,7 +324,8 @@ the key on beyond the AI step's run-to-run variance on v6:
 | Held-out v7 (prose facts, official sources, service questions, conflicts; written for the polish) | 34 | 0.546 -> **0.849** | 0.546 -> **0.849** | 0.12 / 1.75 s |
 | Kit selftest fixture (with its conflicts gold) | 5 | 1.000 (final 1.000) | 1.000 (final 1.000) | <0.01 / 0.82 s |
 
-"Polish" is the score before the polish stage, "final" the submitted code. Zero stale-trap hits and zero
+In each "before polish -> final" column the first number is the score before the polish stage (PR 3's
+code) and the second the submitted code. Zero stale-trap hits and zero
 errors on every set; consistency 1.00 on every set but v6 key-off (0.83) and v7 (0.98: of its two
 routing-number wordings, the ABA-and-ACH one is refused, see Known gaps). Latencies come from parallel runs
 of all eight sets (a sequential public run: p95 about 0.07 s with the key off); with the key on, the slowest
@@ -417,10 +423,6 @@ unknown.
   as "What is the APR on the Business Platinum Visa?": the rules read no product in "helok", so the gate
   let the restatement replace the refusal and the answer gave that card's APR (it scores 0, as the refusal
   does; the other runs refused or answered the HELOC rate).
-- **Passages quote the sentences after the matched one** in the same paragraph as printed. Only the
-  article lead that is added in front of an answer is checked for other products' figures, so "What is
-  Dupaco Voices?" still quotes a 2022 article whose next sentence speaks of "our more than 145,000
-  members".
 - **Source credit.** Rate answers cite pages whose rate *tables* hold the winning value; a product page
   that states the value only in prose (the Platinum Visa APR in the credit-cards page's fine print) is not
   added, so "What purchase APR does the Platinum Visa carry?" cites the rate sheet but not

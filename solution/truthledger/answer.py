@@ -602,8 +602,13 @@ class Answerer:
         return _clean_link(best[1])
 
     def _passage(self, row: Row, limit: int = 420) -> str:
-        """The winning sentence plus the sentences that follow it in the same paragraph or list."""
-        return " ".join(_sentence(r.text) for r in self._passage_rows(row, limit))
+        """The winning sentence plus the sentences that follow it in the same paragraph or list. A following
+        sentence that states a figure the answer's own sentences do not (an old article's "our more than 145,000
+        members" after the sentence that answers) is left out."""
+        rows = self._passage_rows(row, limit)
+        allowed = set(counts(row.text)) | set(counts(rows[0].text))
+        return " ".join(_sentence(r.text) for r in rows
+                        if r is row or r is rows[0] or not states_count(r.text) or set(counts(r.text)) <= allowed)
 
     def _passage_rows(self, row: Row, limit: int = 420) -> list[Row]:
         """The rows `_passage` reads, in page order."""
@@ -1015,16 +1020,17 @@ def _about(row: Row, vocab: frozenset) -> Optional[tuple]:
     undated page's name (its title), headline and address. Product name words count only when the site's rate
     tables use them as a product's name (`vocab`: 'bright', 'share', 'platinum'), so the other words of a
     sentence or a marketing headline ('Grow Your Savings Faster') are not read as a name. A dated article's
-    headline names its story, not the subject of every sentence in it (press-release boilerplate such as "It has
-    over 600 employees and 22 branch office locations" sits under "Are reward credit cards worth it?"), so it is
-    read only for a sentence that states a rate, which always belongs to a product. None when no context names a
-    product. Ordinal counts ('the fifth time') are figures, not name words."""
+    headline and subheadings name its story, not the subject of every sentence under them (press-release and
+    blog boilerplate such as "It has over 600 employees and 22 branch office locations" sits under "Are reward
+    credit cards worth it?" or "Choosing the right credit card"), so they are read only for a sentence that
+    states a rate, which always belongs to a product. None when no context names a product. Ordinal counts
+    ('the fifth time') are figures, not name words."""
     headline, *subheads = row.section.split(" > ")
-    contexts = [row.text] + subheads[::-1]
+    contexts = [row.text]
     if not row.page.published:
-        contexts += [row.page.title.split("|")[0], headline, re.sub(r"[/_-]", " ", url_path(row.page.url))]
+        contexts += subheads[::-1] + [row.page.title.split("|")[0], headline, re.sub(r"[/_-]", " ", url_path(row.page.url))]
     elif "%" in row.text:
-        contexts.append(headline)
+        contexts += subheads[::-1] + [headline]
     for c in contexts:
         fam = family_of(c)
         if fam:
@@ -1034,9 +1040,10 @@ def _about(row: Row, vocab: frozenset) -> Optional[tuple]:
 
 
 def _asks_about(q: Question, about: Optional[tuple], vocab: frozenset) -> bool:
-    """Is a statement about the product the question names (its family, every product name and kind asked)?"""
+    """Is a statement about exactly the product the question names: its family, and the same product name words
+    and kinds as asked, no more ('personal loans' is the plain personal loan, never Credit Coach)?"""
     return (about is not None and q.family is not None and family_matches(q.family, about[0])
-            and q.product & vocab <= about[1] and q.kinds <= about[2])
+            and q.product & vocab == about[1] and q.kinds == about[2])
 
 
 _MONEY_OR_RATE = re.compile(r"%|\$\s*\d")
