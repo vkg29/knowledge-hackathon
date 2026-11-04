@@ -1,14 +1,15 @@
 """The KnowledgeSystem the harness talks to: ingest -> ledger, answer -> rules, conflicts -> report.
 
-With AI steps on (`ai.ClaudeHooks`), a question is first restated by the model (`Understanding`) and
-the rules answer the restated question(s); the model never chooses a value. A comparison is answered
-one product at a time by the rules and joined here. A final check keeps an AI-path answer only when
+With AI steps on (`ai.ClaudeHooks`), the model restates a question (`Understanding`) while the rules
+answer the member's own words, and the rules answer the restated question(s); the model never chooses a
+value. A comparison is answered one product at a time by the rules and joined here. A final check keeps an AI-path answer only when
 every number in it is one the rule-built answers stated; otherwise, and whenever the AI step is off,
 fails or times out, the rules answer the original question exactly as they do without a key.
 """
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from .answer import Answerer, Result, _name
@@ -29,6 +30,7 @@ class LedgerKnowledge:
         self.ledger = Ledger(extra_rows=self.hooks.extra_rows)
         self._answerer: Optional[Answerer] = None
         self._cache: dict = {}
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="understand")
 
     def ingest(self, snapshot) -> None:
         self.ledger.add_snapshot(snapshot.snapshot_id, snapshot.taken_on, snapshot.pages)
@@ -47,8 +49,9 @@ class LedgerKnowledge:
         c = self._c
         if not self.ledger.snapshots:
             return c.Answer(text="I don't know yet; nothing has been loaded.", confident=False)
+        pending = self._pool.submit(self.hooks.understand, question)
         res, k = self._answerer.answer(question, as_of)
-        understood = self.hooks.understand(question)
+        understood = pending.result()
         if understood is not None:
             found = self._with_ai(question, understood, res, as_of)
             if found is not None:
@@ -69,14 +72,16 @@ class LedgerKnowledge:
         words; None keeps the rules' answer. The restatement is used only where the rules could not read the
         original: it compares products head to head, the rules would read a calendar year as a vehicle model
         year, the restatement shows a question kind (a change over time, a rate) the rules' reading missed, or
-        the rules found nothing. It must keep what the rules did read (product family, account kinds, term), and
-        it may overrule a refusal only with a rate-table answer: prose matching is too loose to beat a refusal."""
+        the rules found nothing. It must keep what the rules did read (product family, account kinds, term,
+        balance or loan amount, model year), and it may overrule a refusal only with a rate-table answer: prose
+        matching is too loose to beat a refusal. Only a calendar year before the first crawl turns a confident
+        answer into a refusal."""
         if u.compare:
             found = self._understood(u, as_of)
             return found if found is not None and found[0].confident else None
         own = self._answerer.reading(question)
         new = self._answerer.reading(u.questions[0], u.calendar_year)
-        if not _faithful(own, new):
+        if not _faithful(own, new, u.calendar_year):
             return None
         if not rules.confident:
             if not (new.family or new.product):
@@ -90,7 +95,8 @@ class LedgerKnowledge:
         if own.wants_url or own.hours or new.wants_url or new.hours:
             return None
         if (new.change and not own.change) or (_tabled(new) and not _tabled(own)):
-            return self._understood(u, as_of)
+            found = self._understood(u, as_of)
+            return found if found is not None and found[0].confident else None
         return None
 
     def _understood(self, u: Understanding, as_of: Optional[str]) -> Optional[tuple]:
@@ -107,13 +113,19 @@ class LedgerKnowledge:
         return find_conflicts(self.ledger, self._c)
 
 
-def _faithful(own, new) -> bool:
-    """A restatement keeps the product family, account kinds and terms the rules read in the original."""
+def _faithful(own, new, calendar_year: Optional[int]) -> bool:
+    """A restatement keeps the product family, account kinds, terms, balance or loan amount and vehicle model
+    year the rules read in the original (a year the model says is a calendar year is not a model year)."""
     if own.family and not family_matches(own.family, new.family or ""):
         return False
     if not own.kinds <= new.kinds:
         return False
-    return not own.quals.terms or own.quals.terms <= new.quals.terms
+    if own.quals.terms and not own.quals.terms <= new.quals.terms:
+        return False
+    if own.quals.amount and new.quals.amount != own.quals.amount:
+        return False
+    years = own.quals.years
+    return not years or years == (calendar_year, calendar_year) or new.quals.years == years
 
 
 def _tabled(q) -> bool:

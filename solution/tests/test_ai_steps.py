@@ -56,6 +56,16 @@ BOATS = """# Boat loans
 Enjoy flexible terms up to 84 months on a new boat, so fun stays fun.
 """
 
+MONEY_MARKET = """# Money Market
+
+Money Market Accounts
+
+| Balance | Dividend Rate | Annual Percentage Yield (APY) |
+| --- | --- | --- |
+| $0 - $9,999.99 | 0.50% | 0.50% |
+| $10,000 and up | 1.00% | 1.01% |
+"""
+
 WARMUP = "What is the 12-month certificate APY?"
 
 
@@ -166,6 +176,40 @@ class Restatement(unittest.TestCase):
         ks, _, _ = with_ai({q: reply("What is the APR?")})
         self.assertFalse(ks.answer(q).confident)
 
+    def test_a_confident_answer_is_not_replaced_by_a_refusal(self):
+        q = "tell me about boat loans"
+        ks, _, _ = with_ai({q: reply("What is the APR on boat loans?")}, BOATS)
+        ans = ks.answer(q)
+        self.assertTrue(ans.confident)
+        self.assertEqual(ans.text, rules_only(BOATS).answer(q).text)
+
+    def test_restatement_that_drops_the_members_balance_is_ignored(self):
+        q = "what do money markit pay on $15,000"
+        ks, _, _ = with_ai({q: reply("What does the Money Market account pay?")}, MONEY_MARKET)
+        self.assertNotIn("0.50%", ks.answer(q).text)
+        ks, _, _ = with_ai({q: reply("What does the Money Market account pay on a $15,000 balance?")}, MONEY_MARKET)
+        ans = ks.answer(q)
+        self.assertIn("1.01%", ans.text)
+        self.assertNotIn("0.50%", ans.text)
+
+    def test_restatement_that_drops_the_members_model_year_is_ignored(self):
+        q = "2022 model year ride apr"
+        ks, _, _ = with_ai({q: reply("What is the APR on an auto loan?")})
+        self.assertNotIn("5.39%", ks.answer(q).text)
+        ks, _, _ = with_ai({q: reply("What is the APR on an auto loan for a 2022 model-year vehicle?", model_year=2022)})
+        ans = ks.answer(q)
+        self.assertIn("5.64%", ans.text)
+        self.assertNotIn("5.39%", ans.text)
+
+    def test_restatement_that_narrows_to_a_term_the_member_did_not_write_is_ignored(self):
+        q = "what r ur certifcate rates"
+        ks, _, _ = with_ai({q: reply("What is the rate on the 12-month certificate?")})
+        self.assertFalse(ks.answer(q).confident)
+        ks, _, _ = with_ai({q: reply("What are the certificate rates?")})
+        ans = ks.answer(q)
+        self.assertIn("2.95%", ans.text)
+        self.assertIn("3.40%", ans.text)
+
 
 class CalendarYear(unittest.TestCase):
     Q = "What was the auto loan rate in 2025?"
@@ -250,6 +294,20 @@ class Robustness(unittest.TestCase):
         self.assertLess(time.monotonic() - start, 0.6)
         self.assertFalse(ans.confident)
 
+    def test_ai_call_runs_while_the_rules_answer(self):
+        q = "whats the apy on ur 1 yr cd rn"
+        ks, _, _ = with_ai({q: reply("What is the APY on the 12-month certificate?")}, delays={q: 0.5})
+        rules = ks._answerer.answer
+
+        def slow_rules(*args, **kw):
+            time.sleep(0.5)
+            return rules(*args, **kw)
+        ks._answerer.answer = slow_rules
+        start = time.monotonic()
+        ans = ks.answer(q)
+        self.assertLess(time.monotonic() - start, 1.5)
+        self.assertIn("2.95%", ans.text)
+
     def test_same_question_is_understood_once_and_answered_identically(self):
         q = "whats the apy on ur 1 yr cd rn"
         ks, client, _ = with_ai({q: reply("What is the APY on the 12-month certificate?")})
@@ -278,6 +336,15 @@ class ReplyValidation(unittest.TestCase):
         self.assertIsNotNone(ai.parse_reply(reply("What does Share Savings pay on a $15,000 balance?"), "15k in savings"))
         self.assertIsNotNone(ai.parse_reply(reply("What is the APY on an 18-month Roth IRA certificate?"),
                                             "Roth IRA CD for a year and a half"))
+        self.assertIsNotNone(ai.parse_reply(reply("What is the APY on the 12-month certificate?"), "a year cd apy"))
+        self.assertIsNotNone(ai.parse_reply(reply("What is the APY on the 1-year certificate?"), "12 month cd apy"))
+        self.assertIsNotNone(ai.parse_reply(reply("What does Share Savings pay on $15,000?"), "15 thousand in savings"))
+
+    def test_numbers_the_member_never_wrote_are_rejected(self):
+        self.assertIsNone(ai.parse_reply(reply("What is the rate on the 12-month certificate?"), "what r ur certifcate rates"))
+        self.assertIsNone(ai.parse_reply(reply("What does Share Savings pay on a $1,000 balance?"), "how much does savings pay"))
+        self.assertIsNone(ai.parse_reply(reply("What does the 6-month certificate pay on $6,000?"), "6 month cd"))
+        self.assertIsNone(ai.parse_reply(reply("What is the APY on the 72-month certificate?"), "6 month cd"))
 
     def test_years_the_member_did_not_write_are_dropped(self):
         u = ai.parse_reply(reply("What is the auto loan APR?", calendar_year=2024), "auto loan apr")

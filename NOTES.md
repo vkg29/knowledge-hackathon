@@ -148,15 +148,18 @@ true:
    apy on ur 1 yr cd rn" -> "What is the APY on the 12-month certificate?"), one standalone question per
    product for a comparison, and whether a year is a calendar year or a vehicle model year. The reply is
    validated here: malformed JSON, more than three questions, a year the member never wrote, or any number
-   the member did not write (other than years -> months and $15k -> $15,000) and the restatement is
-   thrown away. That last check caught the model turning "30-year" into "20-year".
-2. **Gate.** The rules answer the member's own words first. The restatement replaces that answer only
-   when the rules could not read the original: it is a comparison; the rules would read a calendar year as
-   a model year; the restatement is a change-over-time or rate question while the rules read the original
-   as something else; or the rules found nothing. It must keep what the rules did read (product family,
-   account kinds such as IRA or jumbo, term), and it may overrule a refusal only with a rate-table answer
-   (prose matching is too loose to beat a refusal: "a 7-year CD?" restated as "an 84-month certificate?"
-   would otherwise match a boat-loan sentence). The first unguarded version answered every restatement
+   the member did not write (other than a term in years written in months or the reverse, "a year" ->
+   12 months, and $15k -> $15,000) and the restatement is thrown away. That last check caught the model
+   turning "30-year" into "20-year".
+2. **Gate.** The rules answer the member's own words while the AI call is in flight. The restatement
+   replaces that answer only when the rules could not read the original: it is a comparison; the rules
+   would read a calendar year as a model year; the restatement is a change-over-time or rate question
+   while the rules read the original as something else; or the rules found nothing. It must keep what the
+   rules did read (product family, account kinds such as IRA or jumbo, term, balance or loan amount,
+   vehicle model year), it never turns a confident answer into "I don't know" (except a calendar year
+   before the first crawl), and it may overrule a refusal only with a rate-table answer (prose matching
+   is too loose to beat a refusal: "a 7-year CD?" restated as "an 84-month certificate?" would otherwise
+   match a boat-loan sentence). The first unguarded version answered every restatement
    and lowered the public set from 0.920 to 0.796; the gate is why key-on never scores below key-off.
 3. **The ledger answers.** The rules answer the restated question(s) exactly as they answer any other:
    the same identities, winners, timelines and truth rules. A comparison is each product answered on its
@@ -167,9 +170,10 @@ true:
 
 **Speed.** Thinking off, effort low, the prompt cached (about 2,600 tokens, read from the cache after the
 first call), plain JSON instead of the API's structured-output mode (which measured about 0.8 s slower per
-call; the reply is validated here instead), no SDK retries, and a hard deadline of 1.9 s per question. A
-request still unanswered after 0.9 s is sent a second time and the first reply wins (a hedged request),
-which cuts the slow tail that decides p95. A check call while loading (untimed) opens the connection
+call; the reply is validated here instead), no SDK retries, a hard deadline of 1.9 s per question, and
+the AI call runs while the rules answer the original wording rather than after it. A request still
+unanswered after 0.9 s is sent a second time and the first reply wins (a hedged request), which cuts the
+slow tail that decides p95. A check call while loading (untimed) opens the connection
 and switches the AI step off with a clear message if the key or network does not work; five failed calls
 in a row during answering also switch it off for the run. Measured with the key on over all seven sets
 (223 questions, two traced runs): the AI step itself takes 0.83-0.85 s at p50, 1.28-1.39 s at p95, at most
