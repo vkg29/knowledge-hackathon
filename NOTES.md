@@ -177,21 +177,21 @@ unanswered after 0.9 s is sent a second time and the first reply wins (a hedged 
 slow tail that decides p95. A check call while loading (untimed) opens the connection and switches the
 AI step off with a clear message if the key or network does not work; five failed calls in a row during
 answering also switch it off for the run. Measured with the key on over all seven sets
-(223 questions, two traced runs): the AI step itself takes 0.83-0.85 s at p50, 1.28-1.39 s at p95, at most
-1.91 s; 2-3% of questions hit the deadline and get the rules' answer. The harness p95 per set is
-1.01-1.92 s.
+(223 questions): the AI step itself takes 0.87 s at p50, 1.56 s at p95, at most 1.91 s; 5 of 223
+questions (about 2%) hit the deadline and get the rules' answer. The harness p95 per set is 0.97-1.91 s
+(see Scores).
 
 **Stability.** Haiku 5.5 does not accept a `temperature` setting (sampling parameters return a 400), so
 determinism comes from elsewhere: every question's AI result (including a fallback) is cached for the
 life of the process, so a repeat gives the identical answer (repeat consistency 1.00 on every set), and
 the rules, not the model, produce every answer. Across separate runs the model can word a restatement
-differently; three full key-on runs gave identical scores on every set but v6 (one question, see
-Scores).
+differently; three full key-on runs before the last review fixes gave identical scores on every set
+but v6 (one question, see Scores).
 
-**Cost.** About $0.02 for a full run of all seven sets (223 questions, about 1.4 calls per question
-including hedges and the load-time checks: about 8k uncached input, 16k output and 820k cached input
-tokens), about $0.003-0.004 for the 40 public questions, at Haiku 5.5's $0.10 / $0.50 per million
-input / output tokens.
+**Cost.** About $0.019 for a full run of all seven sets (223 questions, 333 calls including hedges and
+the five load-time checks: 8,194 uncached input, 16,760 output, 861,887 cached input and 10,738
+cache-write tokens), about $0.003-0.004 for the 40 public questions, at Haiku 5.5's $0.10 / $0.50 per
+million input / output tokens.
 
 **Stage 3 (AI reading at load) was not added.** The questions still missed with the key on are not
 table-reading problems: they are prose questions whose right sentence the lexical matcher does not
@@ -241,23 +241,24 @@ public set and v1-v5 is byte-identical to the previous stage.
 
 | Question set | Questions | Key off (rules only) | Key on (AI understanding) | p95 latency off / on |
 |---|---|---|---|---|
-| Public practice set (kit) | 40 | 0.920 | 0.920 | 0.04 / 1.05-1.92 s |
-| Held-out v1 (reworded + new) | 40 | 0.967 | 0.967 | 0.05 / 1.58-1.73 s |
-| Held-out v2 (rewordings of the public questions) | 25 | 1.000 | 1.000 | 0.04 / 1.15-1.91 s |
-| Held-out v3 (new phrasings and facts) | 25 | 0.972 | 0.972 | 0.02 / 1.62-1.91 s |
-| Held-out v4 (what changed, relative dates, renamed tiers, IRA / money market) | 34 | 1.000 | 1.000 | 0.07 / 1.01-1.34 s |
-| Held-out v5 (fresh rewordings) | 27 | 1.000 | 1.000 | 0.05 / 1.10-1.13 s |
-| Held-out v6 (slang, typos, indirect phrasing, comparisons, calendar vs model year) | 32 | 0.344 | **0.844-0.875** | 0.08 / 1.05-1.06 s |
+| Public practice set (kit) | 40 | 0.920 | 0.920 | 0.04 / 1.64 s |
+| Held-out v1 (reworded + new) | 40 | 0.967 | 0.967 | 0.05 / 1.58 s |
+| Held-out v2 (rewordings of the public questions) | 25 | 1.000 | 1.000 | 0.04 / 1.71 s |
+| Held-out v3 (new phrasings and facts) | 25 | 0.972 | 0.972 | 0.02 / 1.91 s |
+| Held-out v4 (what changed, relative dates, renamed tiers, IRA / money market) | 34 | 1.000 | 1.000 | 0.07 / 1.23 s |
+| Held-out v5 (fresh rewordings) | 27 | 1.000 | 1.000 | 0.05 / 1.78 s |
+| Held-out v6 (slang, typos, indirect phrasing, comparisons, calendar vs model year) | 32 | 0.344 | **0.875** | 0.08 / 0.97 s |
 | Kit selftest fixture (with its conflicts gold) | 5 | 1.000 (final 1.000) | 1.000 (final 1.000) | <0.01 / 0.94 s |
 
-Key-on figures are from three full runs made before the review fixes to the reply checks and the gate
-(stricter number and faithfulness checks, the AI call overlapped with the rules, no confident answer
-turned into a refusal); those fixes have not been re-measured with a key. The runs gave identical scores
-on every set except v6, where one run lost one question (the model wrote "Regular IRA" for "Roth IRA",
-the faithfulness check rejected the restatement, and the rules refused the original wording rather than
-answer a different tier); the latency range covers all three. Zero stale-trap hits and zero errors on
-every set, consistency 1.00 on every set. Ingest of all five snapshots takes about 17 s without a key
-and about 22 s with one (a check call after each snapshot).
+Key-on figures are from a full run on the final code (after the review fixes to the reply checks and
+the gate: stricter number and faithfulness checks, the AI call overlapped with the rules, no confident
+answer turned into a refusal); an earlier run after the review fixes gave the same scores. With the key
+on, the harness p50 is 0.88-0.91 s and the slowest answer 1.01-1.91 s per set. Three earlier runs,
+before those fixes, gave identical scores on every set except v6 (0.844-0.875), where one run lost one
+question (the model wrote "Regular IRA" for "Roth IRA", the faithfulness check rejected the
+restatement, and the rules refused the original wording rather than answer a different tier). Zero
+stale-trap hits and zero errors on every set, consistency 1.00 on every set. Ingest of all five
+snapshots takes about 17 s without a key and about 21 s with one (a check call after each snapshot).
 
 **The kit's judge mode** (`--judge`, Claude Opus 5.5 grading each answer against the full reference,
 public set): accuracy 0.914 with the key on and 0.914 with it off (the gate leaves the public answers
@@ -302,9 +303,9 @@ gold is unknown (39 entries submitted).
   related passage instead, with or without the key.
 - **Without a key**, slang, typos, comparisons and a calendar year next to a vehicle word ("the auto loan
   rate in 2025" is read as a model year) are handled as in the previous stage; with the key, the AI step
-  covers them (v6: 0.344 off, 0.844-0.875 on).
+  covers them (v6: 0.344 off, 0.875 on).
 - **AI step variance.** Across separate runs the model may word a restatement differently; within a run
-  every answer is cached. A question whose AI call misses the 1.9 s deadline (2-3% measured) gets the
+  every answer is cached. A question whose AI call misses the 1.9 s deadline (about 2% measured) gets the
   rules' answer to the original wording.
 - **Source credit.** Some correct answers cite a page other than the one the graders list (the
   routing number from the contact page rather than the cash-management page; general lobby hours
