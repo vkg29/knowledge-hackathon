@@ -95,9 +95,9 @@ within a run (see "AI question understanding").
    figures, the best-matching copy stands unless a copy is more official or has a newer byline, so the
    answer's next sentences are the newest too (the May 2026 release's "179,000 members", not April's
    "181,000"); undated official pages keep the best match. Copies in the exact same wording are gathered
-   wherever they rank when they could outrank the best match (a dated copy, or one at least as official);
-   a less official undated copy counts only when it ranks near the best match. The same statement about
-   *different years*
+   wherever they rank when they could outrank the best match (a dated copy, or a strictly more official
+   one); an undated copy that is no more official counts only when it ranks near the best match. The
+   same statement about *different years*
    ("294 employees used VTO in 2023", "256 ... in 2024") is separate facts: the year is a qualifier, and
    a question about a year the site does not cover ("last year" = 2025) gets each year it does state,
    newest first. A "what ..." question that names something (Forbes, Newsweek) is answered from the lead

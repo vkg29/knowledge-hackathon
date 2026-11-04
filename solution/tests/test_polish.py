@@ -124,6 +124,16 @@ class ProseRates(unittest.TestCase):
         self.assertIn("273974581", ans.text)
         self.assertNotIn("CHECK300", ans.text)
 
+    def test_same_line_on_another_product_page_is_not_a_rival(self):
+        older = {"/loans/personal-loans": "# Personal Loans\n\nRates as low as 8.99% APR.\n",
+                 "/loans/auto-loans": "# Auto Loans\n\nRates as low as 5.49% APR.\n"}
+        newer = {**older, "/loans/auto-loans": "# Auto Loans\n\nRates as low as 5.24% APR.\n"}
+        titles = {"/loans/personal-loans": "Personal Loans", "/loans/auto-loans": "Auto Loans"}
+        ks = system(snap("01_2026-05-12", "2026-05-12", older, titles), snap("02_2026-09-28", "2026-09-28", newer, titles))
+        ans = ks.answer("What rate do personal loans have?")
+        self.assertIn("8.99%", ans.text)
+        self.assertNotIn("5.24%", ans.text)
+
     def test_rate_question_on_an_article_is_not_led_by_its_first_paragraph(self):
         pages = {"/newsroom/holiday-club": release(
             "October 1, 2026", "Holiday Club returns for members",

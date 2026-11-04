@@ -392,11 +392,11 @@ class Answerer:
         # The same statement printed by several pages or crawls (press-release boilerplate, a running count
         # such as "the fifth time Forbes recognized Dupaco"): one fact, stated by its truest, newest dated copy.
         # An exact copy (same words, figures masked) is a rival wherever it ranks when it could outrank the best
-        # match under the rules below: a dated copy, or one at least as official.
+        # match under the rules below: a dated copy, or a strictly more official one.
         tmpl = _template(best.text)
         rivals = [r for i, (s, r) in enumerate(scored)
                   if (i < 60 and s >= 0.6 * best_s and _similar(_template(r.text), tmpl))
-                  or ((r.page.published or r.authority >= best.authority) and _template(r.text) == tmpl)]
+                  or ((r.page.published or r.authority > best.authority) and _template(r.text) == tmpl)]
         yearly = _by_year(rivals)
         if yearly:   # the same statement about different years: separate facts, the year is a qualifier
             if q.year in yearly:
