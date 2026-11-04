@@ -17,6 +17,7 @@ from .catalogue import family_matches
 from .conflicts import find_conflicts
 from .hooks import Hooks, Understanding, numbers, safe_phrase
 from .ledger import Ledger
+from .query import mentions_time
 
 _MAX_SOURCES = 5
 _PERCENT = re.compile(r"(\d+(?:\.\d+)?)\s?%")
@@ -71,7 +72,8 @@ class LedgerKnowledge:
         """The rules' answer to the AI's restatement, when it should replace their answer to the member's own
         words; None keeps the rules' answer. The restatement is used only where the rules could not read the
         original: it compares products head to head, the rules would read a calendar year as a vehicle model
-        year, the restatement shows a question kind (a change over time, a rate) the rules' reading missed, or
+        year, the restatement shows a question kind (a change over time the member's own words ask about, a
+        rate) the rules' reading missed, or
         the rules found nothing. It must keep what the rules did read (product family, account kinds, term,
         balance or loan amount, model year), and it may overrule a refusal only with a rate-table answer: prose
         matching is too loose to beat a refusal. Only a calendar year before the first crawl turns a confident
@@ -94,7 +96,7 @@ class LedgerKnowledge:
             return self._understood(u, as_of)
         if own.wants_url or own.hours or new.wants_url or new.hours:
             return None
-        if (new.change and not own.change) or (_tabled(new) and not _tabled(own)):
+        if (new.change and not own.change and mentions_time(question)) or (_tabled(new) and not _tabled(own)):
             found = self._understood(u, as_of)
             return found if found is not None and found[0].confident else None
         return None

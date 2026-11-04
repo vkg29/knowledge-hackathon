@@ -153,8 +153,9 @@ true:
    turning "30-year" into "20-year".
 2. **Gate.** The rules answer the member's own words while the AI call is in flight. The restatement
    replaces that answer only when the rules could not read the original: it is a comparison; the rules
-   would read a calendar year as a model year; the restatement is a change-over-time or rate question
-   while the rules read the original as something else; or the rules found nothing. It must keep what the
+   would read a calendar year as a model year; the restatement is a change-over-time question (only when
+   the member's own words mention time or change, such as "since May", "did" or "went up") or a rate
+   question while the rules read the original as something else; or the rules found nothing. It must keep what the
    rules did read (product family, account kinds such as IRA or jumbo, term, balance or loan amount,
    vehicle model year), it never turns a confident answer into "I don't know" (except a calendar year
    before the first crawl), and it may overrule a refusal only with a rate-table answer (prose matching

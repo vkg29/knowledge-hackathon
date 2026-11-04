@@ -211,6 +211,29 @@ class Restatement(unittest.TestCase):
         self.assertIn("3.40%", ans.text)
 
 
+class ChangeOverTime(unittest.TestCase):
+    RESTATED = "How has the 6-month certificate APY changed since May?"
+
+    def knowledge(self, q):
+        ks, _, _ = with_ai({q: reply(self.RESTATED)})
+        older = RATES.replace("3.40%1", "3.15%1")
+        ks.ingest(Snapshot("00_2026-05-12_only", "2026-05-12",
+                           [Page(url=SITE + "/rates", title="rates", markdown=older, fetched_at="2026-05-12T00:00:00Z")]))
+        ks.ingest(site())
+        return ks
+
+    def test_a_current_value_question_is_not_turned_into_a_history(self):
+        ans = self.knowledge("What is the 6-month certificate APY?").answer("What is the 6-month certificate APY?")
+        self.assertIn("3.40%", ans.text)
+        self.assertNotIn("3.15%", ans.text)
+
+    def test_a_change_question_the_rules_misread_gets_the_history(self):
+        q = "how has the 6 mo cd apy movd since may"
+        ans = self.knowledge(q).answer(q)
+        self.assertIn("3.15%", ans.text)
+        self.assertIn("3.40%", ans.text)
+
+
 class CalendarYear(unittest.TestCase):
     Q = "What was the auto loan rate in 2025?"
 

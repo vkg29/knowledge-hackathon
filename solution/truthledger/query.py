@@ -199,6 +199,15 @@ def _change(q: str, low: str, today: Optional[str], calendar_year: Optional[int]
     return mode, since, until
 
 
+def mentions_time(question: str) -> bool:
+    """The member's own words ask about time or change ('since May', 'did', 'last month', 'went up',
+    'still offered'): only then may a restatement as a change-over-time question replace a current value."""
+    low = question.lower()
+    undated = strip_model_years(strip_dates(low))
+    return bool(strip_dates(low) != low or _TIME.search(undated) or _CHANGE.search(low) or _STILL.search(low)
+                or _BEFORE.search(low))
+
+
 def _period_start(text: str, today: Optional[str]) -> Optional[str]:
     """'since June 2026' -> the end of June: the site as it stood in June is the baseline."""
     return date_asked(text, today)
