@@ -124,6 +124,86 @@ Certificates
 | 12 Month Term Certificate | 3.40% |
 """
 
+AUTO_TIERS = """# Rates
+
+Auto & Motorcycle Loans
+
+| Loan Program | Term | APR |
+| --- | --- | --- |
+| 2024-27 Model Year | 60 Months | 5.39% |
+| 2021-23 Model Year | 60 Months | 5.64% |
+
+Rates are effective as of 09/01/2026.
+"""
+
+AUTO_CALCULATOR = """# Vehicle calculator
+
+Auto Loan Rates
+
+| Loan Program | Term | APR |
+| --- | --- | --- |
+| 2023-26 Model Year | 60 Months | 5.34% |
+"""
+
+AUTO_PROMO = """# Switch and earn
+
+Auto Loans
+
+| Loan Program | Term | APR |
+| --- | --- | --- |
+| 2024-27 Model Year | 60 Months | 5.19% |
+"""
+
+CREDIT_BUILDER = """# Credit builder
+
+Auto Loans - Credit Builder
+
+| Loan Program | Term | APR |
+| --- | --- | --- |
+| 2019-22 Model Year | 60 Months | 6.00% |
+
+Rates are effective as of 09/01/2026.
+"""
+
+MONEY_MARKET = """# Rates
+
+Investor's Choice Money Market
+
+| Balance Tier | Dividend Rate | APY |
+| --- | --- | --- |
+| $100,000+ | 0.40% | 0.40% |
+| $25,000 - $99,999.99 | 0.35% | 0.35% |
+
+Rates are effective as of 09/01/2026.
+"""
+
+PROMO_MONEY_MARKET = """# Earn more
+
+Money Market Rates
+
+| Account | Dividend Rate | APY |
+| --- | --- | --- |
+| Achieve Money Market | 4.00% | 3.66% |
+"""
+
+SAVINGS_WITH_ACHIEVE = """# Savings
+
+Achieve Money Market
+
+| Account | Dividend Rate | APY |
+| --- | --- | --- |
+| Achieve Money Market | 3.20% | 3.25% |
+"""
+
+SAVINGS_WITHOUT_ACHIEVE = """# Savings
+
+Share Savings
+
+| Account | Dividend Rate | APY |
+| --- | --- | --- |
+| Share Savings | 0.05% | 0.05% |
+"""
+
 STUDENT_TABLE = """# Student Certificates
 
 Student Certificates
@@ -283,6 +363,25 @@ class Authority(unittest.TestCase):
         self.assertNotIn("2.90%", ans.text)
         self.assertIn("/rates", ks.answer("What is the 12-month certificate APY?").conflict_note)
 
+    def test_stale_range_spanning_two_current_tiers_does_not_merge_them(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/rates": AUTO_TIERS, "/calculators/vehicle": AUTO_CALCULATOR}))
+        for q in ("What is the rate on a 60-month auto loan?", "What is the auto loan rate?"):
+            ans = ks.answer(q)
+            self.assertEqual(numbers(ans.text), ["5.39%", "5.64%"], q)
+            self.assertIn("outranks calculator page", ans.conflict_note, q)
+
+    def test_named_product_without_a_plainer_rival_is_not_demoted(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/rates": MONEY_MARKET, "/earn-more": PROMO_MONEY_MARKET}))
+        self.assertEqual(numbers(ks.answer("What is the money market rate?").text), ["0.40%", "0.40%", "0.35%", "0.35%"])
+
+    def test_rewordings_that_pull_different_candidates_group_copies_alike(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {
+            "/rates": AUTO_TIERS, "/switch-and-earn": AUTO_PROMO, "/credit-builder": CREDIT_BUILDER}))
+        broad = ks.answer("What is the 60-month auto loan APR?")
+        narrow = ks.answer("What is the 60-month auto loan APR for a 2026 car?")
+        self.assertIn("5.39%", broad.text)
+        self.assertEqual((numbers(narrow.text), narrow.conflict_note), (["5.39%"], broad.conflict_note))
+
     def test_copy_stating_fewer_figures_that_agree_is_support(self):
         ks = system(snap("01_2026-09-28_only", "2026-09-28", {
             "/rates": CERT_TABLE.format(r12="3.37", a12="3.40", eff="09/01/2026"), "/learn/tips": AGREEING_BLOG}))
@@ -386,6 +485,15 @@ class Conflicts(unittest.TestCase):
         self.assertTrue(any("2.90%" in v for v in c.values) and any("3.40%" in v for v in c.values))
         self.assertIn("3.40%", c.resolution)
         self.assertTrue(c.reason)
+
+    def test_reason_names_the_page_that_stopped_listing_the_product(self):
+        ks = system(snap("01_2026-05-12_a", "2026-05-12", {"/personal/savings": SAVINGS_WITH_ACHIEVE, "/earn-more": PROMO_MONEY_MARKET}),
+                    snap("02_2026-09-28_b", "2026-09-28", {"/personal/savings": SAVINGS_WITHOUT_ACHIEVE, "/earn-more": PROMO_MONEY_MARKET}))
+        conflicts = ks.conflicts()
+        self.assertEqual(len(conflicts), 1)
+        self.assertIn("4.00%", conflicts[0].resolution)
+        self.assertIn(SITE + "/personal/savings) no longer states it in the newest crawl", conflicts[0].reason)
+        self.assertNotIn("outranks", conflicts[0].reason)
 
     def test_terms_with_the_same_rate_history_are_separate_conflicts(self):
         ks = system(snap("01_2026-05-12_base", "2026-05-12", {"/rates": TERMS_TABLE.format(apy="3.25", eff="03/03/2026")}),

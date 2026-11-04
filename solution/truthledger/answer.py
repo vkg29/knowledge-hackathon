@@ -15,7 +15,7 @@ from .ledger import Ledger, Row
 from .matcher import LexicalIndex, row_document
 from .qualifiers import VARIANT_WORDS, amount_match, parse_terms, terms_match, years_match
 from .query import Question, parse
-from .rules import core_words, explain, fact_groups, is_live, truth_key
+from .rules import explain, fact_roots, is_live, truth_key
 from .text import has_digit, norm
 from .vocab import STOPWORDS, expand, stem, tokens, with_prefixes
 
@@ -134,9 +134,9 @@ class Answerer:
         for s, row in self._scored(q, allowed):
             if not is_live(row, on_date) or not _compatible(q, row):
                 continue
-            extra = len(row.quals.variants - q.quals.variants) + len((core_words(row) or frozenset()) - set(q.words) - _VARIANT_TOKENS)
+            extra = row.quals.variants - q.quals.variants
             if extra:
-                s *= (0.8 if listing else 0.55) ** extra
+                s *= (0.8 if listing else 0.55) ** len(extra)
             missing = q.quals.variants - row.quals.variants
             if missing:
                 s *= 0.5 ** len(missing)
@@ -149,9 +149,11 @@ class Answerer:
             return None
         if q.quals.amount:
             cands = _tightest_tier(cands)
+        names = self.ledger.product_names()
+        cands = _prefer_plainer(q, cands, names, listing)
         # Copies of one fact compete by the truth rules before relevance is cut: the truest copy
         # stands for the fact with the best relevance any copy earned.
-        truest = _truest([r for _, r in cands])
+        truest = fact_roots([r for _, r in cands], names)
         relevance: dict[int, float] = defaultdict(float)
         for s, r in cands:
             root = truest[r.rid]
@@ -373,13 +375,22 @@ def _same_table(a: Row, b: Row) -> bool:
     return a.page.vid == b.page.vid and a.caption == b.caption and a.section == b.section
 
 
-def _truest(rows: list[Row]) -> dict[int, Row]:
-    """rid -> the truest row stating the same fact (by the truth rules, at any authority level)."""
-    out = {}
-    for group in fact_groups(rows):
-        root = max(group, key=truth_key)
-        for r in group:
-            out[r.rid] = root
+def _prefer_plainer(q: Question, cands: list, names: dict, listing: bool) -> list:
+    """A product named with words the question did not use loses to a plainer sibling of the same
+    term and variant that is also a candidate ('Student' vs 'Regular' certificates for a
+    '12-month certificate')."""
+    known: dict[tuple, set] = defaultdict(set)
+    for _, r in cands:
+        if names[r.rid] is not None:
+            known[(r.quals.terms, r.quals.variants)].add(names[r.rid])
+    asked = set(q.words) | _VARIANT_TOKENS
+    out = []
+    for s, r in cands:
+        own = names[r.rid]
+        plainer = [n for n in known[(r.quals.terms, r.quals.variants)] if own and n < own]
+        if plainer:
+            s *= (0.8 if listing else 0.55) ** max(len(own - n - asked) for n in plainer)
+        out.append((s, r))
     return out
 
 

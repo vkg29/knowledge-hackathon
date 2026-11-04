@@ -53,7 +53,7 @@ def truth_key(row) -> tuple:
     return (row.authority, row.dated, row.page.fetched_at, -row.rid)
 
 
-_TIER_WORDS = frozenset(stem(w) for w in "model year month or less and older type program".split())
+_TIER_WORDS = frozenset(stem(w) for w in "model year years month months mo mos yr yrs or less and older type program".split())
 _GENERIC_PRODUCT_WORDS = _TIER_WORDS | frozenset(stem(w) for w in (
     "rate rates loan loans account accounts certificate certificates regular term share fixed standard conventional").split())
 
@@ -69,9 +69,10 @@ def core_words(row) -> Optional[frozenset]:
 
 
 def product_names(rows) -> dict[int, Optional[frozenset]]:
-    """rid -> the product a row names. A shorter name joins the one fuller name of the same term and
-    variant that contains it ('Auto Loans' is 'Auto & Motorcycle Loans'); a plain name (no core
-    words) or one that fits several fuller names stays its own product."""
+    """rid -> the product a row names, over every table row in the ledger. A shorter name joins the
+    one fuller name of the same term and variant that contains it ('Auto Loans' is 'Auto &
+    Motorcycle Loans'); a plain name (no core words) or one that fits several fuller names stays its
+    own product."""
     names: dict[tuple, set] = defaultdict(set)
     for r in rows:
         if core_words(r) is not None:
@@ -101,39 +102,37 @@ def same_fact(a, b, names: dict) -> bool:
     return bool({m for m, _ in a.values} & {m for m, _ in b.values})
 
 
-def fact_groups(rows) -> list[list]:
-    """Rows grouped so that every row is in the group of each row it states the same fact as."""
-    names = product_names(rows)
-    buckets: dict[tuple, list] = defaultdict(list)
-    for r in rows:
-        buckets[(r.quals.terms, r.quals.variants, r.quals.amount, names[r.rid])].append(r)
-    groups = []
-    for bucket in buckets.values():
-        parent = list(range(len(bucket)))
-
-        def find(i: int) -> int:
-            while parent[i] != i:
-                i = parent[i]
-            return i
-
-        for i, a in enumerate(bucket):
-            for j in range(i):
-                if same_fact(a, bucket[j], names):
-                    parent[find(i)] = find(j)
-        members: dict[int, list] = defaultdict(list)
-        for i, r in enumerate(bucket):
-            members[find(i)].append(r)
-        groups.extend(members.values())
-    return groups
+def fact_roots(rows, names: dict) -> dict:
+    """rid -> the truest row stating the same fact. Rows are taken truest first and each joins the
+    truest root it states the same fact as, so a stale row whose model years span two current tiers
+    joins one of them without merging the two."""
+    roots: dict[tuple, list] = defaultdict(list)
+    out = {}
+    for r in sorted(rows, key=truth_key, reverse=True):
+        key = (r.quals.terms, r.quals.variants, r.quals.amount, names[r.rid])
+        root = next((x for x in roots[key] if same_fact(x, r, names)), None)
+        if root is None:
+            roots[key].append(r)
+            root = r
+        out[r.rid] = root
+    return out
 
 
-def explain(winner, loser) -> str:
-    """Why `winner` beat `loser`, in one sentence."""
+def explain(winner, loser, current: bool = True) -> str:
+    """Why `winner` beat `loser`, in one sentence. `current` is False when the loser's page no longer
+    states it in the snapshot being judged."""
+    if not current and winner.page.url != loser.page.url:
+        return (f"{_kind_name(loser)} ({loser.page.url}) no longer states it in the newest crawl; "
+                f"{_kind_name(winner)} ({winner.page.url}) does")
     if winner.authority != loser.authority:
         return (f"{_kind_name(winner)} ({winner.page.url}) outranks {_kind_name(loser)} ({loser.page.url})")
     if winner.dated != loser.dated:
         return f"newer statement: dated {winner.dated} on {winner.page.url} vs {loser.dated} on {loser.page.url}"
-    return f"seen in a newer crawl of {winner.page.url}"
+    if winner.page.url == loser.page.url:
+        return f"seen in a newer crawl of {winner.page.url}"
+    if winner.page.fetched_at != loser.page.fetched_at:
+        return f"equally official and dated; {winner.page.url} was seen in a newer crawl than {loser.page.url}"
+    return f"equally official and dated; kept {winner.page.url} over {loser.page.url}"
 
 
 def _kind_name(row) -> str:

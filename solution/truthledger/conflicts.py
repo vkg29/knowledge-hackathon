@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from .rules import explain, is_live, product_names, same_fact, truth_key
+from .rules import explain, is_live, same_fact, truth_key
 from .vocab import STOPWORDS, stem, tokens
 
 _RATE_METRICS = ("rate", "dividend rate", "APY", "APR", "fee")
@@ -94,7 +94,7 @@ def _table_conflicts(ledger, c) -> list:
                 rows.append(row)
     current_ids = {r.rid for r in ledger.view(latest)}
     on_date = ledger.snapshots[latest].taken_on
-    names = product_names(rows)
+    names = ledger.product_names()
     out = []
     for cluster in _clusters(rows, names):
         cluster.sort(key=lambda r: r.rid)
@@ -108,10 +108,10 @@ def _table_conflicts(ledger, c) -> list:
         winners = sorted({r.rid: r for r in live if r.page.vid == winner.page.vid and r.caption == winner.caption}.values(),
                          key=lambda r: r.pos)
         win_ids = {r.rid for r in winners}
-        losers = [r for pair in disagreements for r in pair if r.rid not in win_ids]
+        losers = [r for r in cluster if r.rid not in win_ids and any(_disagree(w, r, names) for w in winners)]
         if not losers:
             continue
-        loser = max(losers, key=truth_key)
+        loser = max(losers, key=lambda r: (r.rid in current_ids, r.page.url == winner.page.url, truth_key(r)))
         values, sources, seen_vals = [], [], set()
         for r in sorted(cluster, key=lambda r: (r.rid not in win_ids, -r.page.first_snapshot, r.page.url, r.pos)):
             for v in _value_text(r):
@@ -124,9 +124,10 @@ def _table_conflicts(ledger, c) -> list:
         resolution = "; ".join(f"{r.label}{' (' + r.qual_text + ')' if r.qual_text else ''}: {', '.join(_value_text(r))}"
                                for r in winners[:6])
         q = winner.quals
+        reason = explain(winner, loser, current=loser.rid in current_ids)
         out.append(((len(q.variants), len(_topic(winner))), ("table", q.terms, q.years, q.amount),
                     c.Conflict(topic=_topic(winner), values=values, sources=sources, resolution=resolution,
-                               reason=explain(winner, loser) + "; tiers and rate-vs-APY columns are kept as separate facts.")))
+                               reason=reason + "; tiers and rate-vs-APY columns are kept as separate facts.")))
     return out
 
 

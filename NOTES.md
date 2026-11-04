@@ -30,7 +30,8 @@ byte-identical text and sources every time (checked across processes with differ
    amount only matches rows that carry a matching one (the narrowest tier that contains the
    amount); rows with variants the question did not ask for are demoted, so "17-month special" means
    the regular special, not the jumbo or IRA one. The same goes for a product's distinguishing name
-   words: "12-month certificate" means the regular certificate, not the student one.
+   words when a plainer product of the same term competes: "12-month certificate" means the regular
+   certificate, not the student one.
 2. **Ended things are not current.** Rows from a page that says the offer has ended, and rows that
    state their own past end date ("offer ended 2025-09-30"), drop out of current answers. They still
    answer "as of" questions about the time they were live.
@@ -41,10 +42,13 @@ byte-identical text and sources every time (checked across processes with differ
    common metric, and name the same product: the caption and label words left after dropping
    generic ones (certificate, regular, rate, loan, account, …), where a shorter name joins the one
    fuller name that contains it ("Auto Loans" is "Auto & Motorcycle Loans", but plain "Certificates"
-   is never "Student Certificates"). Copies compete on these rules *before* relevance is cut, at
-   any authority level, so a blog or calculator row worded closer to the question cannot push the
-   rate sheet out, and two official sheets for the same product agree on the newer one. A copy is
-   only a losing figure where it disagrees on a metric both rows state.
+   is never "Student Certificates"); product names are worked out once over the whole ledger, so
+   every question sees the same products. Copies compete on these rules *before* relevance is cut,
+   at any authority level, so a blog or calculator row worded closer to the question cannot push
+   the rate sheet out, and two official sheets for the same product agree on the newer one. Rows
+   are taken truest first and each joins the truest copy it matches directly, so a stale
+   "2023-26" row never merges the current "2024-27" and "2021-23" tiers. A copy is only a losing
+   figure where it disagrees on a metric both rows state.
 4. **Recency among equals.** The date printed on the page wins: "Rates are effective as of …" for
    tables, the byline date for press releases and blog posts. Then the crawl that last saw it.
 5. **Repeated statements.** The same sentence printed with different figures (press-release

@@ -16,7 +16,7 @@ from typing import Iterable, Optional
 from .extract import RawRow, extract_rows
 from .pages import AUTHORITY, canonical_url, page_kind, published_date
 from .qualifiers import Qualifiers
-from .rules import ends_on, page_has_ended
+from .rules import ends_on, page_has_ended, product_names
 
 
 @dataclass(frozen=True)
@@ -81,6 +81,7 @@ class Ledger:
         self.rows_by_version: dict[int, list[Row]] = {}
         self._latest: dict[str, tuple[str, int]] = {}   # canonical url -> (content hash, vid) of its newest version
         self._views: dict[int, list[Row]] = {}
+        self._names: Optional[dict] = None
 
     # ---- loading -------------------------------------------------------------------------
     def add_snapshot(self, snapshot_id: str, taken_on: str, pages: Iterable) -> SnapshotInfo:
@@ -99,6 +100,7 @@ class Ledger:
             info.pages[url] = vid
         self.snapshots.append(info)
         self._views.clear()
+        self._names = None
         return info
 
     def _add_version(self, url: str, page, snap_index: int) -> int:
@@ -147,6 +149,12 @@ class Ledger:
                 rows.extend(self.rows_by_version[vid])
             self._views[snap_index] = rows
         return self._views[snap_index]
+
+    def product_names(self) -> dict:
+        """rid -> product name of every table row (see rules.product_names), the same for every question."""
+        if self._names is None:
+            self._names = product_names([r for r in self.rows if r.kind == "table"])
+        return self._names
 
     def in_crawl(self, row: Row, snap_index: int) -> bool:
         """Was this exact page version part of that snapshot's crawl (not carried forward)?"""
