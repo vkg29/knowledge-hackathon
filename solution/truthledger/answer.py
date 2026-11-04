@@ -13,11 +13,12 @@ from typing import Optional
 
 from .ledger import Ledger, Row
 from .matcher import LexicalIndex, row_document
+from .pages import AUTHORITY
 from .qualifiers import VARIANT_WORDS, amount_match, parse_terms, terms_match, years_match
 from .query import Question, parse
 from .rules import explain, fact_roots, is_live, truth_key
 from .text import has_digit, norm
-from .vocab import STOPWORDS, expand, stem, tokens, with_prefixes
+from .vocab import GENERIC, STOPWORDS, expand, stem, tokens, with_prefixes
 
 REFUSAL = ("I'm sorry, that isn't listed on Dupaco's website, so I can't confirm it. "
            "Please contact Dupaco directly by phone, in Shine Online Banking or at any branch, and a team member can help.")
@@ -108,6 +109,14 @@ class Answerer:
         text = row.text + (" " + row.subject if row.kind == "table" else "")
         return frozenset(with_prefixes(tokens(text)))
 
+    def _names_product(self, q: Question, row: Row, best: Row) -> bool:
+        """Does the row's own caption or label name the product asked for: one of the question's
+        product words (not an asked variant), or failing that a product word of the best row?"""
+        asked = {t for v in q.quals.variants for t in tokens(v)}
+        words = [w for w in q.key_words if not w.isdigit() and w not in asked]
+        own = self._own_terms(row)
+        return not words or any(w in own for w in words) or bool(_family_words(row, asked) & _family_words(best, asked))
+
     def _page_terms(self, row: Row) -> frozenset:
         key = row.page.vid
         if key not in self._page_cache:
@@ -163,13 +172,20 @@ class Answerer:
         facts = sorted(((relevance[r.rid], r) for _, r in cands if truest[r.rid] is r), key=lambda c: (-c[0], c[1].rid))
         top = facts[0][0]
         band = [c for c in facts if c[0] >= (0.6 if listing else 0.75) * top]
-        best = max(band, key=lambda c: (truth_key(c[1]), c[0]))[1]
+        if listing:   # distinct facts: an official page's most relevant plain product (not a variant) picks the page
+            pool = [c for c in band if c[1].quals.variants <= q.quals.variants] or band
+            best = max(pool, key=lambda c: (AUTHORITY[c[1].page.kind], c[0], truth_key(c[1])))[1]
+        else:
+            best = max(band, key=lambda c: (truth_key(c[1]), c[0]))[1]
         if not listing:
             rows = [r for _, r in band if _same_table(r, best)]
         elif _catalogue(q):
-            rows = [r for _, r in band]
-        else:   # everything the truest page lists for this product
-            rows = list({truest[r.rid].rid: truest[r.rid] for _, r in cands if r.page.vid == best.page.vid}.values())
+            rows = [r for _, r in band if r is best or self._names_product(q, r, best)]
+        else:   # everything the truest page lists for this product family, by the rows' own words
+            plain = best.quals.variants <= q.quals.variants
+            rows = list({truest[r.rid].rid: truest[r.rid] for _, r in cands
+                         if r is best or (r.page.vid == best.page.vid and (not plain or r.quals.variants <= q.quals.variants)
+                                          and self._names_product(q, r, best))}.values())
         rows = _dedupe(sorted(rows, key=lambda r: (r.page.vid != best.page.vid, r.page.url, r.pos)))
         if q.superlative:
             rows = [_extreme(rows, q)]
@@ -426,10 +442,17 @@ def _wanted_metrics(q: Question) -> set:
     return {"rate", "APR", "APY", "dividend rate", "fee"}   # a "minimum to open" is shown only when asked
 
 
+def _family_words(r: Row, asked: set) -> set:
+    """Words of a row's caption and label that name a product ('visa', 'certificate', 'home'),
+    leaving out tier words and the variants the question asked for."""
+    return {t for t in tokens(f"{r.caption} {r.label}")
+            if t.isalpha() and t not in STOPWORDS and t not in GENERIC and t not in asked}
+
+
 def _dedupe(rows: list[Row]) -> list[Row]:
     seen, out = set(), []
-    for r in sorted(rows, key=lambda r: r.rid):
-        key = norm(r.text)
+    for r in rows:
+        key = (norm(r.caption), norm(r.text))
         if key not in seen:
             seen.add(key)
             out.append(r)

@@ -35,6 +35,9 @@ byte-identical text and sources every time (checked across processes with differ
    any row carries it ("IRA certificate rate" answers the IRA rows), and a question asking for a
    rate ("rate", "APY", "what does it earn?") is answered only from rows that state a percentage;
    a dollar amount is read as a fee only when its label or column says fee, cost, price or charge.
+   A list question ("What are the certificate rates?") is answered from the official page of the
+   most relevant plain product (personal certificates, not business ones), and lists only that
+   page's rows whose own caption or label names the product, without variants it did not ask for.
 2. **Ended things are not current.** Rows from a page that says the offer has ended, and rows that
    state their own past end date ("offer ended 2025-09-30"), drop out of current answers. They still
    answer "as of" questions about the time they were live.
@@ -150,7 +153,9 @@ truth rules and question routing improved (details in the commit history).
   on press-release boilerplate instead of the newest Forbes release (a reworded "How many times has
   Forbes recognized Dupaco?" is answered correctly).
 - **list_completeness:** the practice item "Get me the rate for the certificate of accounts" has no
-  `must_include`, so it scores 0 for any answer under the kit's scorer.
+  `must_include`, so it scores 0 for any answer under the kit's scorer (it now lists the personal
+  certificate rates). Lists stop at 12 rows, and a list keeps sibling products on the same page that
+  share a product word ("What are the mortgage rates?" also shows the home improvement loans there).
 - **Paraphrase in general:** matching is lexical plus a thesaurus. The blind first-run scores show
   that unseen wordings still miss sometimes; an AI question-rewriting step is the planned fix.
 - **Branch hours** exist only inside press releases about individual branches, so general hours are

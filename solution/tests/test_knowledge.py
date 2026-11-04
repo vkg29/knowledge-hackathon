@@ -251,6 +251,44 @@ Home Equity Loan (Fixed)
 Rates are effective as of 09/01/2026.
 """
 
+PERSONAL_RATES = """# Rates
+
+Certificates
+
+Regular Certificates
+
+| Certificate | Dividend Rate | Annual Percentage Yield (APY) |
+| --- | --- | --- |
+| 12 Month | 3.37% | 3.40% |
+| 6 Month | 3.27% | 3.30% |
+
+Share Savings
+
+| Account Type | Balance Tier | Dividend Rate | Annual Percentage Yield (APY) |
+| --- | --- | --- | --- |
+| Share Savings | $25,000+ | 0.20% | 0.20% |
+
+Rates are effective as of 09/01/2026.
+"""
+
+BUSINESS_RATES = """# Business rates
+
+Business Share Savings
+
+| Account Type | Balance Tier | Dividend Rate | Annual Percentage Yield (APY) |
+| --- | --- | --- | --- |
+| Business Share Savings | $25,000+ | 0.25% | 0.25% |
+
+Regular Business Certificates
+
+| Certificate | Dividend Rate | Annual Percentage Yield (APY) |
+| --- | --- | --- |
+| 12 Month | 3.37% | 3.40% |
+| 24 Month | 2.48% | 2.50% |
+
+Rates are effective as of 09/24/2026.
+"""
+
 STUDENT_TABLE = """# Student Certificates
 
 Student Certificates
@@ -442,6 +480,24 @@ class Authority(unittest.TestCase):
         ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/home-equity": HOME_EQUITY_OLD, "/rates": HOME_EQUITY_NEW}))
         self.assertEqual(numbers(ks.answer("What is the 60-month home equity loan APR?").text), ["6.50%"])
         self.assertEqual(len(ks.conflicts()), 1)
+
+    def test_certificate_list_comes_from_the_personal_certificates(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/rates": PERSONAL_RATES, "/business-rates": BUSINESS_RATES}))
+        for q in ("What are the certificate rates?", "Get me the rate for the certificate of accounts."):
+            ans = ks.answer(q)
+            self.assertEqual(numbers(ans.text), ["3.37%", "3.40%", "3.27%", "3.30%"], q)
+            self.assertNotIn("Savings", ans.text, q)
+            self.assertNotIn("Business", ans.text, q)
+        catalogue = ks.answer("Which certificates do you offer and what are their APYs?")
+        self.assertIn("Regular Certificates - 12 Month: 3.40% APY", catalogue.text)
+        self.assertNotIn("Savings", catalogue.text)
+
+    def test_business_certificate_list_comes_from_the_business_certificates(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/rates": PERSONAL_RATES, "/business-rates": BUSINESS_RATES}))
+        ans = ks.answer("What rate do business certificates pay?")
+        self.assertEqual(numbers(ans.text), ["3.37%", "3.40%", "2.48%", "2.50%"])
+        self.assertIn("Regular Business Certificates", ans.text)
+        self.assertNotIn("Savings", ans.text)
 
     def test_copy_stating_fewer_figures_that_agree_is_support(self):
         ks = system(snap("01_2026-09-28_only", "2026-09-28", {
