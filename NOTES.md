@@ -29,18 +29,22 @@ byte-identical text and sources every time (checked across processes with differ
    *different facts*, never a contradiction. A question that names a term, model year or dollar
    amount only matches rows that carry a matching one (the narrowest tier that contains the
    amount); rows with variants the question did not ask for are demoted, so "17-month special" means
-   the regular special, not the jumbo or IRA one.
+   the regular special, not the jumbo or IRA one. The same goes for a product's distinguishing name
+   words: "12-month certificate" means the regular certificate, not the student one.
 2. **Ended things are not current.** Rows from a page that says the offer has ended, and rows that
    state their own past end date ("offer ended 2025-09-30"), drop out of current answers. They still
    answer "as of" questions about the time they were live.
 3. **Authority.** An official page with a dated rate table beats an official product page, which
    beats a promotion landing page, a downloaded document (PDF), a press release, a blog post, and
-   finally a calculator (calculators embed rate tables that are rarely refreshed). A row is a copy of
-   a more authoritative page's row when both have the same term, tier and variant, the truer row
-   states every figure the copy states, and they share a product word that the question does not
-   tell apart ("student"). Copies drop out *before* relevance is cut, so a blog row worded closer to
-   the question cannot push the rate sheet out. Equally authoritative pages only restate each other
-   when the product words are identical; otherwise they are different products.
+   finally a calculator (calculators embed rate tables that are rarely refreshed). Two table rows
+   are *copies of one fact* when they have the same term, tier and variant, state at least one
+   common metric, and name the same product: the caption and label words left after dropping
+   generic ones (certificate, regular, rate, loan, account, …), where a shorter name joins the one
+   fuller name that contains it ("Auto Loans" is "Auto & Motorcycle Loans", but plain "Certificates"
+   is never "Student Certificates"). Copies compete on these rules *before* relevance is cut, at
+   any authority level, so a blog or calculator row worded closer to the question cannot push the
+   rate sheet out, and two official sheets for the same product agree on the newer one. A copy is
+   only a losing figure where it disagrees on a metric both rows state.
 4. **Recency among equals.** The date printed on the page wins: "Rates are effective as of …" for
    tables, the byline date for press releases and blog posts. Then the crawl that last saw it.
 5. **Repeated statements.** The same sentence printed with different figures (press-release
@@ -50,11 +54,11 @@ byte-identical text and sources every time (checked across processes with differ
    words), the answer is a digit-free "that isn't listed … please contact Dupaco" with
    `confident=False`, instead of the nearest guess.
 
-`conflicts()` uses the same rules: one entry per product-and-term whose same tier was printed with
-different values (across pages in one crawl or across crawls), plus boilerplate statements repeated
+`conflicts()` uses the same rules and the same copy identity: one entry per product-and-term whose
+same tier was printed with different values (across pages in one crawl or across crawls), plus boilerplate statements repeated
 on five or more dated pages (or ordinal counts like "fourth"/"fifth" time) with different figures. Each
 entry lists every value seen, the value the rules pick for the newest snapshot, and why (which rule
-decided). Tiers and rate-vs-APY columns are never reported. On the full data it reports 28 conflicts.
+decided). Tiers and rate-vs-APY columns are never reported. On the full data it reports 30 conflicts.
 
 ## Architecture
 

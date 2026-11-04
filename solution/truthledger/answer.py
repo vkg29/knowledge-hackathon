@@ -13,9 +13,9 @@ from typing import Optional
 
 from .ledger import Ledger, Row
 from .matcher import LexicalIndex, row_document
-from .qualifiers import amount_match, parse_terms, terms_match, years_match
+from .qualifiers import VARIANT_WORDS, amount_match, parse_terms, terms_match, years_match
 from .query import Question, parse
-from .rules import explain, is_live, product_words, same_tier, truth_key
+from .rules import core_words, explain, fact_groups, is_live, truth_key
 from .text import has_digit, norm
 from .vocab import STOPWORDS, expand, stem, tokens, with_prefixes
 
@@ -134,9 +134,9 @@ class Answerer:
         for s, row in self._scored(q, allowed):
             if not is_live(row, on_date) or not _compatible(q, row):
                 continue
-            extra = row.quals.variants - q.quals.variants
+            extra = len(row.quals.variants - q.quals.variants) + len((core_words(row) or frozenset()) - set(q.words) - _VARIANT_TOKENS)
             if extra:
-                s *= (0.8 if listing else 0.55) ** len(extra)
+                s *= (0.8 if listing else 0.55) ** extra
             missing = q.quals.variants - row.quals.variants
             if missing:
                 s *= 0.5 ** len(missing)
@@ -149,10 +149,14 @@ class Answerer:
             return None
         if q.quals.amount:
             cands = _tightest_tier(cands)
-        # Rows restating a truer page's fact drop out before relevance is cut, so a blog row worded
-        # closer to the question cannot push the rate sheet out.
-        truest = _truest(q, [r for _, r in cands])
-        facts = sorted(((s, r) for s, r in cands if truest[r.rid] is r), key=lambda c: (-c[0], c[1].rid))
+        # Copies of one fact compete by the truth rules before relevance is cut: the truest copy
+        # stands for the fact with the best relevance any copy earned.
+        truest = _truest([r for _, r in cands])
+        relevance: dict[int, float] = defaultdict(float)
+        for s, r in cands:
+            root = truest[r.rid]
+            relevance[root.rid] = max(relevance[root.rid], s)
+        facts = sorted(((relevance[r.rid], r) for _, r in cands if truest[r.rid] is r), key=lambda c: (-c[0], c[1].rid))
         top = facts[0][0]
         band = [c for c in facts if c[0] >= (0.6 if listing else 0.75) * top]
         best = max(band, key=lambda c: (truth_key(c[1]), c[0]))[1]
@@ -168,7 +172,7 @@ class Answerer:
         rows = rows[:12]
         shown = {r.rid for r in rows}
         copies = [r for _, r in cands if r.rid not in shown and truest[r.rid].rid in shown]
-        losers = [r for r in copies if _value(r, q) != _value(truest[r.rid], q)]
+        losers = [r for r in copies if _differs(r, truest[r.rid], q)]
         note = None
         if losers:
             loser = max(losers, key=truth_key)
@@ -176,7 +180,7 @@ class Answerer:
                     + explain(truest[loser.rid], loser) + ".")
         shown_pages = {r.page.vid for r in rows}
         support = [r for r in sorted(copies, key=lambda r: (-r.authority, r.page.url))
-                   if _value(r, q) == _value(truest[r.rid], q) and r.page.vid not in shown_pages]
+                   if not _differs(r, truest[r.rid], q) and r.page.vid not in shown_pages]
         return Result("; ".join(_render(r, q) for r in rows) + ".", rows, note=note, support=support)
 
     # ---- prose ---------------------------------------------------------------------------
@@ -369,50 +373,33 @@ def _same_table(a: Row, b: Row) -> bool:
     return a.page.vid == b.page.vid and a.caption == b.caption and a.section == b.section
 
 
-def _truest(q: Question, rows: list[Row]) -> dict[int, Row]:
-    """rid -> the row whose fact this row restates (itself when no truer page states it)."""
-    groups: dict[tuple, list[Row]] = defaultdict(list)
-    for r in rows:
-        groups[(r.quals.terms, r.quals.variants, r.quals.amount)].append(r)
-    asked = set(q.key_words)
-    words = {r.rid: product_words(r) for r in rows}
-    parent: dict[int, Row] = {}
-    for group in groups.values():
-        ranked = sorted(group, key=truth_key, reverse=True)
-        for r in group:
-            parent[r.rid] = next(x for x in ranked if x is r or _absorbs(x, r, words, asked))
+def _truest(rows: list[Row]) -> dict[int, Row]:
+    """rid -> the truest row stating the same fact (by the truth rules, at any authority level)."""
     out = {}
-    for r in rows:
-        root = r
-        while parent[root.rid] is not root:
-            root = parent[root.rid]
-        out[r.rid] = root
+    for group in fact_groups(rows):
+        root = max(group, key=truth_key)
+        for r in group:
+            out[r.rid] = root
     return out
 
 
-def _absorbs(a: Row, b: Row, words: dict, asked: set) -> bool:
-    """Row `b` restates the fact of `a`, which ranks above it by the truth rules: same term, variant
-    and tier, every figure `b` states is one `a` states too, and the same product. A more
-    authoritative page's row covers any row sharing a product word, unless the words that tell them
-    apart are what the question asks about; among equally authoritative pages only the same product
-    words do."""
-    if a.page.vid == b.page.vid or not same_tier(a, b):
-        return False
-    wa, wb = words[a.rid], words[b.rid]
-    if a.authority == b.authority:
-        if wa != wb:
-            return False
-    elif not wa & wb or (wa ^ wb) & asked:
-        return False
-    return {m for m, _ in b.values} <= {m for m, _ in a.values}
+def _differs(a: Row, b: Row, q: Question) -> bool:
+    """Do two copies of a fact disagree on a wanted figure they both state?"""
+    wanted = _wanted_metrics(q)
+    va, vb = _by_metric(a.values, wanted), _by_metric(b.values, wanted)
+    return any(va[m] != vb[m] for m in va.keys() & vb.keys())
+
+
+def _by_metric(values, wanted: set) -> dict:
+    out: dict = defaultdict(list)
+    for m, v in values:
+        if m in wanted:
+            out[m].append(v)
+    return out
 
 
 def _catalogue(q: Question) -> bool:
     return bool(re.search(r"\b(what|which)\b.*\b(do you|does dupaco|are)\b.*\b(offer|have|available)\b|\ball\b|\btypes? of\b", q.raw, re.I))
-
-
-def _value(r: Row, q: Question) -> tuple:
-    return tuple(v for m, v in r.values if m in _wanted_metrics(q))
 
 
 def _wanted_metrics(q: Question) -> set:
@@ -458,6 +445,7 @@ def _render(r: Row, q: Question) -> str:
 
 
 _NEVER_SHOWN = ("points", "payment example", "minimum to open")
+_VARIANT_TOKENS = {t for w in VARIANT_WORDS for t in tokens(w)}
 _CAPTION_FILLER = {stem(w) for w in "rates rate loans loan accounts account savings regular special".split()}
 
 

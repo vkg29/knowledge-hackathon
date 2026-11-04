@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from .rules import explain, is_live, product_words, same_tier, truth_key
+from .rules import explain, is_live, product_names, same_fact, truth_key
 from .vocab import STOPWORDS, stem, tokens
 
 _RATE_METRICS = ("rate", "dividend rate", "APY", "APR", "fee")
@@ -47,7 +47,7 @@ def _merge_duplicates(ranked: list) -> list:
 
 # ---- rate tables ---------------------------------------------------------------------------
 def _numbers(row) -> tuple:
-    """The rate figures a row states, one per metric (its first percentage), for comparison."""
+    """The rate figures a row states as (metric, number) pairs, the first percentage of each value."""
     out = []
     for m, v in sorted(row.values):
         if m in _RATE_METRICS and "%" in v:
@@ -63,32 +63,25 @@ def _value_text(row) -> list[str]:
 _DASH = re.compile(r"\s*[\u2013\u2014-]\s*")
 
 
-def _clusters(rows: list) -> list[list]:
-    """Group rows of one product: same term and variant, and one's product words contain the other's."""
-    by_shape: dict[tuple, list] = defaultdict(list)
+def _clusters(rows: list, names: dict) -> list[list]:
+    """Group rows of one product and term: same term, variant and product name."""
+    groups: dict[tuple, list] = defaultdict(list)
     for r in rows:
-        by_shape[(r.quals.terms, r.quals.variants, tuple(sorted(m for m, _ in _numbers(r))))].append(r)
-    out = []
-    for shape_rows in by_shape.values():
-        words = sorted({product_words(r) for r in shape_rows if product_words(r)}, key=lambda w: (len(w), sorted(w)))
-        parent = {w: w for w in words}
+        if names[r.rid] is not None:
+            groups[(r.quals.terms, r.quals.variants, names[r.rid])].append(r)
+    return list(groups.values())
 
-        def find(w):
-            while parent[w] != w:
-                w = parent[w]
-            return w
 
-        for i, a in enumerate(words):
-            for b in words[i + 1:]:
-                if a <= b or b <= a:
-                    parent[find(b)] = find(a)
-        groups: dict = defaultdict(list)
-        for r in shape_rows:
-            w = product_words(r)
-            if w:
-                groups[find(w)].append(r)
-        out.extend(groups.values())
-    return out
+def _disagree(a, b, names: dict) -> bool:
+    """Two rows state the same fact with a different figure for a metric both state."""
+    if not same_fact(a, b, names):
+        return False
+    na, nb = defaultdict(list), defaultdict(list)
+    for m, n in _numbers(a):
+        na[m].append(n)
+    for m, n in _numbers(b):
+        nb[m].append(n)
+    return any(na[m] != nb[m] for m in na.keys() & nb.keys())
 
 
 def _table_conflicts(ledger, c) -> list:
@@ -101,11 +94,11 @@ def _table_conflicts(ledger, c) -> list:
                 rows.append(row)
     current_ids = {r.rid for r in ledger.view(latest)}
     on_date = ledger.snapshots[latest].taken_on
+    names = product_names(rows)
     out = []
-    for cluster in _clusters(rows):
+    for cluster in _clusters(rows, names):
         cluster.sort(key=lambda r: r.rid)
-        disagreements = [(a, b) for i, a in enumerate(cluster) for b in cluster[i + 1:]
-                         if same_tier(a, b) and _numbers(a) != _numbers(b)]
+        disagreements = [(a, b) for i, a in enumerate(cluster) for b in cluster[i + 1:] if _disagree(a, b, names)]
         if not disagreements:
             continue
         live = [r for r in cluster if r.rid in current_ids and is_live(r, on_date)]

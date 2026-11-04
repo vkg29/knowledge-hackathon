@@ -95,6 +95,35 @@ Certificates
 | 12 Month Term Certificate | 2.90% |
 """
 
+OLD_SHEET = """# Certificates
+
+Certificates
+
+| Certificate | Dividend Rate | APY |
+| --- | --- | --- |
+| 12 Month | 2.85% | 2.90% |
+
+Rates are effective as of 05/01/2026.
+"""
+
+CALCULATOR = """# Certificate calculator
+
+Certificates
+
+| Certificate | Rate | APY |
+| --- | --- | --- |
+| 12 Month | 2.85% | 2.90% |
+"""
+
+AGREEING_BLOG = """# Saving tips
+
+Certificates
+
+| Certificate | APY |
+| --- | --- |
+| 12 Month Term Certificate | 3.40% |
+"""
+
 STUDENT_TABLE = """# Student Certificates
 
 Student Certificates
@@ -224,11 +253,43 @@ class Authority(unittest.TestCase):
             "/rates": CERT_TABLE.format(r12="3.37", a12="3.40", eff="09/01/2026"), "/student-certificates": STUDENT_TABLE}))
         self.assertEqual(numbers(ks.answer("What is the 12-month student certificate APY?").text), ["4.00%"])
         self.assertEqual(numbers(ks.answer("What is the 12-month regular certificate APY?").text), ["3.40%"])
-        self.assertIsNone(ks.answer("What is the 12-month certificate APY?").conflict_note)
+        for q in ("What is the 12-month certificate APY?", "What is the APY on a 12-month certificate?"):
+            plain = ks.answer(q)
+            self.assertEqual(numbers(plain.text), ["3.40%"], q)
+            self.assertIsNone(plain.conflict_note, q)
         catalogue = ks.answer("Which certificates do you offer and what are their APYs?")
         self.assertIn("12 Month: 3.40% APY", catalogue.text)
         self.assertIn("12 Month Student Certificate: 4.00% APY", catalogue.text)
         self.assertIsNone(catalogue.conflict_note)
+        self.assertEqual(ks.conflicts(), [])
+
+    def test_older_official_sheet_with_other_caption_is_a_stale_copy(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {
+            "/rates": CERT_TABLE.format(r12="3.37", a12="3.40", eff="09/01/2026"), "/certificates": OLD_SHEET}))
+        for q in ("Which certificates do you offer and what are their APYs?", "What certificate rates do you have?",
+                  "What is the 12-month certificate APY?"):
+            ans = ks.answer(q)
+            self.assertIn("3.40%", ans.text, q)
+            self.assertNotIn("2.90%", ans.text, q)
+            self.assertNotIn("2.85%", ans.text, q)
+        conflicts = ks.conflicts()
+        self.assertEqual(len(conflicts), 1)
+        self.assertIn("3.40%", conflicts[0].resolution)
+
+    def test_calculator_with_a_rate_column_is_a_stale_copy(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {
+            "/rates": CERT_TABLE.format(r12="3.37", a12="3.40", eff="09/01/2026"), "/calculators/certificate": CALCULATOR}))
+        ans = ks.answer("Which certificates do you offer and what are their APYs?")
+        self.assertNotIn("2.90%", ans.text)
+        self.assertIn("/rates", ks.answer("What is the 12-month certificate APY?").conflict_note)
+
+    def test_copy_stating_fewer_figures_that_agree_is_support(self):
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {
+            "/rates": CERT_TABLE.format(r12="3.37", a12="3.40", eff="09/01/2026"), "/learn/tips": AGREEING_BLOG}))
+        ans = ks.answer("What is the 12-month certificate rate?")
+        self.assertIn("3.40%", ans.text)
+        self.assertIsNone(ans.conflict_note)
+        self.assertEqual([s.url for s in ans.sources], [SITE + "/rates", SITE + "/learn/tips"])
 
 
 class Qualifiers(unittest.TestCase):

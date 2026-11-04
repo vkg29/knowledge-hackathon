@@ -11,15 +11,17 @@ In priority order:
    a press release's byline date), then the crawl that last saw the page.
 
 Qualifiers are handled before these rules run: rows for different terms, tiers, model years,
-loan amounts or metrics are different facts and never compete.
+loan amounts or metrics are different facts and never compete, and so are products whose names
+differ by a word that is not generic ("Student" certificates); see `same_fact`.
 """
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from typing import Optional
 
 from .text import find_dates
-from .vocab import STOPWORDS, tokens
+from .vocab import STOPWORDS, stem, tokens
 
 _ENDED_PAGE = re.compile(r"this offer has ended|offer has expired|promotion has ended|this offer is no longer", re.I)
 _ENDS_ON = re.compile(r"\b(?:offer|promotion|special|rate|sale)\b[^.]{0,40}?\b(?:ended|expired|ends|expires|valid (?:through|until))\b", re.I)
@@ -51,22 +53,78 @@ def truth_key(row) -> tuple:
     return (row.authority, row.dated, row.page.fetched_at, -row.rid)
 
 
-_PRODUCT_NOISE = {"model", "year", "month", "or", "less", "and", "older", "fixed",
-                  "rate", "rates", "loan", "loans", "account", "accounts", "type", "program", "standard"}
+_TIER_WORDS = frozenset(stem(w) for w in "model year month or less and older type program".split())
+_GENERIC_PRODUCT_WORDS = _TIER_WORDS | frozenset(stem(w) for w in (
+    "rate rates loan loans account accounts certificate certificates regular term share fixed standard conventional").split())
 
 
-def product_words(row) -> frozenset:
-    """The words that name a table row's product (its caption and label, minus tier and filler words)."""
-    return frozenset(t for t in tokens(f"{row.caption} {row.label}")
-                     if t.isalpha() and t not in _PRODUCT_NOISE and t not in STOPWORDS)
+def core_words(row) -> Optional[frozenset]:
+    """The words that tell one table row's product from another's (its caption and label, minus tier
+    and generic product words): 'Regular Certificates - 12 Month' has none, a student certificate
+    has 'student'. None when the caption and label name no product at all ('$100,000+')."""
+    words = [t for t in tokens(f"{row.caption} {row.label}") if t.isalpha() and t not in STOPWORDS and t not in _TIER_WORDS]
+    if not words:
+        return None
+    return frozenset(t for t in words if t not in _GENERIC_PRODUCT_WORDS)
 
 
-def same_tier(a, b) -> bool:
-    """Overlapping model-year ranges and the same balance or loan amount."""
+def product_names(rows) -> dict[int, Optional[frozenset]]:
+    """rid -> the product a row names. A shorter name joins the one fuller name of the same term and
+    variant that contains it ('Auto Loans' is 'Auto & Motorcycle Loans'); a plain name (no core
+    words) or one that fits several fuller names stays its own product."""
+    names: dict[tuple, set] = defaultdict(set)
+    for r in rows:
+        if core_words(r) is not None:
+            names[(r.quals.terms, r.quals.variants)].add(core_words(r))
+    out = {}
+    for r in rows:
+        own = core_words(r)
+        if own:
+            known = names[(r.quals.terms, r.quals.variants)]
+            fuller = [n for n in known if own < n and not any(n < m for m in known)]
+            if len(fuller) == 1:
+                own = fuller[0]
+        out[r.rid] = own
+    return out
+
+
+def same_fact(a, b, names: dict) -> bool:
+    """Two table rows state the same fact: same term, variant, amount tier and product name,
+    overlapping model years, and at least one metric both state."""
+    if names[a.rid] is None or names[a.rid] != names[b.rid]:
+        return False
+    if (a.quals.terms, a.quals.variants, a.quals.amount) != (b.quals.terms, b.quals.variants, b.quals.amount):
+        return False
     ya, yb = a.quals.years, b.quals.years
     if (ya is None) != (yb is None) or (ya and not (ya[0] <= yb[1] and yb[0] <= ya[1])):
         return False
-    return a.quals.amount == b.quals.amount
+    return bool({m for m, _ in a.values} & {m for m, _ in b.values})
+
+
+def fact_groups(rows) -> list[list]:
+    """Rows grouped so that every row is in the group of each row it states the same fact as."""
+    names = product_names(rows)
+    buckets: dict[tuple, list] = defaultdict(list)
+    for r in rows:
+        buckets[(r.quals.terms, r.quals.variants, r.quals.amount, names[r.rid])].append(r)
+    groups = []
+    for bucket in buckets.values():
+        parent = list(range(len(bucket)))
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                i = parent[i]
+            return i
+
+        for i, a in enumerate(bucket):
+            for j in range(i):
+                if same_fact(a, bucket[j], names):
+                    parent[find(i)] = find(j)
+        members: dict[int, list] = defaultdict(list)
+        for i, r in enumerate(bucket):
+            members[find(i)].append(r)
+        groups.extend(members.values())
+    return groups
 
 
 def explain(winner, loser) -> str:
