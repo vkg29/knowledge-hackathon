@@ -102,6 +102,8 @@ Student Certificates
 | Certificate | APY |
 | --- | --- |
 | 12 Month Student Certificate | 4.00% |
+
+Rates are effective as of 09/15/2026.
 """
 
 TERMS_TABLE = """# Rates
@@ -217,11 +219,16 @@ class Authority(unittest.TestCase):
         self.assertIn("3.40%", ans.text)
         self.assertNotIn("2.90%", ans.text)
 
-    def test_a_product_the_question_names_is_not_merged_into_another(self):
+    def test_equally_official_rate_tables_for_different_products_stay_separate(self):
         ks = system(snap("01_2026-09-28_only", "2026-09-28", {
             "/rates": CERT_TABLE.format(r12="3.37", a12="3.40", eff="09/01/2026"), "/student-certificates": STUDENT_TABLE}))
         self.assertEqual(numbers(ks.answer("What is the 12-month student certificate APY?").text), ["4.00%"])
-        self.assertEqual(numbers(ks.answer("What is the 12-month certificate APY?").text), ["3.40%"])
+        self.assertEqual(numbers(ks.answer("What is the 12-month regular certificate APY?").text), ["3.40%"])
+        self.assertIsNone(ks.answer("What is the 12-month certificate APY?").conflict_note)
+        catalogue = ks.answer("Which certificates do you offer and what are their APYs?")
+        self.assertIn("12 Month: 3.40% APY", catalogue.text)
+        self.assertIn("12 Month Student Certificate: 4.00% APY", catalogue.text)
+        self.assertIsNone(catalogue.conflict_note)
 
 
 class Qualifiers(unittest.TestCase):

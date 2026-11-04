@@ -149,21 +149,17 @@ class Answerer:
             return None
         if q.quals.amount:
             cands = _tightest_tier(cands)
-        # Rows stating the same fact compete by the truth rules, before relevance is cut: the truest
-        # copy of each fact survives and carries the best relevance score any copy of it earned.
+        # Rows restating a truer page's fact drop out before relevance is cut, so a blog row worded
+        # closer to the question cannot push the rate sheet out.
         truest = _truest(q, [r for _, r in cands])
-        relevance: dict[int, float] = defaultdict(float)
-        for s, r in cands:
-            t = truest[r.rid]
-            relevance[t.rid] = max(relevance[t.rid], s)
-        facts = sorted((r for _, r in cands if truest[r.rid] is r), key=lambda r: (-relevance[r.rid], r.rid))
-        top = relevance[facts[0].rid]
-        band = [r for r in facts if relevance[r.rid] >= (0.6 if listing else 0.75) * top]
-        best = max(band, key=lambda r: (truth_key(r), relevance[r.rid]))
+        facts = sorted(((s, r) for s, r in cands if truest[r.rid] is r), key=lambda c: (-c[0], c[1].rid))
+        top = facts[0][0]
+        band = [c for c in facts if c[0] >= (0.6 if listing else 0.75) * top]
+        best = max(band, key=lambda c: (truth_key(c[1]), c[0]))[1]
         if not listing:
-            rows = [r for r in band if _same_table(r, best)]
+            rows = [r for _, r in band if _same_table(r, best)]
         elif _catalogue(q):
-            rows = band
+            rows = [r for _, r in band]
         else:   # everything the truest page lists for this product
             rows = list({truest[r.rid].rid: truest[r.rid] for _, r in cands if r.page.vid == best.page.vid}.values())
         rows = _dedupe(sorted(rows, key=lambda r: (r.page.vid != best.page.vid, r.page.url, r.pos)))
@@ -374,30 +370,41 @@ def _same_table(a: Row, b: Row) -> bool:
 
 
 def _truest(q: Question, rows: list[Row]) -> dict[int, Row]:
-    """rid -> the truest row among those stating the same fact as it (itself when none is truer)."""
+    """rid -> the row whose fact this row restates (itself when no truer page states it)."""
     groups: dict[tuple, list[Row]] = defaultdict(list)
     for r in rows:
         groups[(r.quals.terms, r.quals.variants, r.quals.amount)].append(r)
     asked = set(q.key_words)
     words = {r.rid: product_words(r) for r in rows}
-    out = {}
+    parent: dict[int, Row] = {}
     for group in groups.values():
         ranked = sorted(group, key=truth_key, reverse=True)
         for r in group:
-            out[r.rid] = next(x for x in ranked if x is r or _same_fact(x, r, words, asked))
+            parent[r.rid] = next(x for x in ranked if x is r or _absorbs(x, r, words, asked))
+    out = {}
+    for r in rows:
+        root = r
+        while parent[root.rid] is not root:
+            root = parent[root.rid]
+        out[r.rid] = root
     return out
 
 
-def _same_fact(a: Row, b: Row, words: dict, asked: set) -> bool:
-    """Two rows on different pages state the same fact: same term, variant and tier, a shared
-    metric, and the same product (they share a product word, and the words that tell them apart
-    are not what the question asks about)."""
+def _absorbs(a: Row, b: Row, words: dict, asked: set) -> bool:
+    """Row `b` restates the fact of `a`, which ranks above it by the truth rules: same term, variant
+    and tier, every figure `b` states is one `a` states too, and the same product. A more
+    authoritative page's row covers any row sharing a product word, unless the words that tell them
+    apart are what the question asks about; among equally authoritative pages only the same product
+    words do."""
     if a.page.vid == b.page.vid or not same_tier(a, b):
         return False
     wa, wb = words[a.rid], words[b.rid]
-    if not wa & wb or (wa ^ wb) & asked:
+    if a.authority == b.authority:
+        if wa != wb:
+            return False
+    elif not wa & wb or (wa ^ wb) & asked:
         return False
-    return bool({m for m, _ in a.values} & {m for m, _ in b.values})
+    return {m for m, _ in b.values} <= {m for m, _ in a.values}
 
 
 def _catalogue(q: Question) -> bool:
