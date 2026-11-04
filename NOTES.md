@@ -62,11 +62,11 @@ every time (checked across processes with different hash seeds).
    that question is refused instead of answered with certificate rates; "after the intro period"
    asks for the ongoing rate, not the intro one). A product word the question names that the site
    uses ("Bright", "1st Rate", "special") selects that product (an ordinal is one name word however
-   it is spelled: "First Rate" is "1st Rate", "Second Chance" is "2nd Chance"); a plainer product beats a sibling
-   whose extra name words the question did not use ("12-month certificate" is the regular one, not the
-   Student one). When the question names no product, the product of the most official page among
-   the close candidates is meant (Investor's Choice from the rate sheet, not a promotion's money
-   market).
+   it is spelled: "First Rate" is "1st Rate", "Second Chance" is "2nd Chance"); a plainer product
+   beats a sibling whose extra name words the question did not use ("12-month certificate" is the
+   regular one, not the Student one). When the question names no product, the product of the most
+   official page among the close candidates is meant (Investor's Choice from the rate sheet, not a
+   promotion's money market).
 2. **Ended things are not current.** Rows from a page that says the offer has ended, and rows that
    state their own past end date, drop out of current answers; they still answer "as of" questions
    about the time they were live. A fact that no crawl lists any more is reported as no longer
@@ -105,9 +105,10 @@ every time (checked across processes with different hash seeds).
   change question: "lower than the jumbo", "does it go up with a bigger balance" or "how does it
   change with the term" compare products and get today's values; "lower", "higher", "go up",
   "change", "compare" or "different" count as a change only beside a time word ("did", "was",
-  "since", "ago", "last", a month or a year, but not a model year); "trend" always asks for the history. With a model year in the question, each crawl's
-  slot is the one whose printed years contained it, so "a 2023 car since May" correctly goes from the
-  May "2023-26" tier (5.19%) to today's "2021-23" tier (5.64%).
+  "since", "ago", "last", a month or a year, but not a model year); "trend" always asks for the
+  history. With a model year in the question, each crawl's slot is the one whose printed years
+  contained it, so "a 2023 car since May" correctly goes from the May "2023-26" tier (5.19%) to
+  today's "2021-23" tier (5.64%).
 - **Relative dates** count back from the newest crawl (28 Sep 2026): "last month" is 31 Aug, "two
   months ago" is 28 Jul, "this past May" or "in May" is 31 May 2026, "last year" is 2025, and "over
   the past year" or "in the last year" is the twelve months up to the newest crawl, read as a history.
@@ -210,7 +211,8 @@ gold is unknown (39 entries submitted).
 - **Extraction artefacts** remain in a few long value cells (the May HELOC intro cell reads as a
   sentence with a footnote digit), and a few blog tables get junk identity cards; they hold no rate
   figures that compete with official ones.
-- **Calendar year near a vehicle word:** a past calendar year near a vehicle word, e.g. auto loan rate in 2025, is read as a model year.
+- **Calendar year near a vehicle word:** a past calendar year near a vehicle word, e.g. auto loan
+  rate in 2025, is read as a model year.
 - **Branch hours** exist only inside press releases about individual branches, so general hours are
   summarised from those; a branch with no published hours is refused rather than guessed.
 - The practice item "Get me the rate for the certificate of accounts" has no `must_include`, so it
