@@ -25,7 +25,7 @@ as of ..."). A sentence repeated on many dated pages is settled by its newest da
 | Public (40) | 0.969 / 0.969 | - |
 | Held-out v1 / v2 / v3 | 0.967 / 1.000 / 0.972 (same on) | 0.679 / 0.663 / 0.819 |
 | Held-out v4 / v5 | 1.000 / 1.000 (same on) | 0.368 / 0.815 |
-| Held-out v6 (slang, typos, comparisons) | 0.344 / 0.844-0.875 | 0.31 off, 0.86 on |
+| Held-out v6 (slang, typos, comparisons) | 0.344 / 0.844-0.875 | 0.3125 off, 0.859 on |
 | Held-out v7 (prose, sources, service) | 0.849 / 0.849 | 0.546 |
 
 Only first runs are blind; later fixes were tuned on these sets. Expect the hidden set to land
