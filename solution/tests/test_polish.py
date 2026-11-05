@@ -75,7 +75,9 @@ class NewestStatement(unittest.TestCase):
                      for y, o in ((2021, "sixth"), (2022, "seventh"), (2023, "eighth"))}
         pages = {"/newsroom/ranking-2023": RANKING_2023, "/newsroom/ranking-2024": RANKING_2024,
                  "/newsroom/workplace": WORKPLACE, **dividends}
-        cls.ks = system(snap("01_2026-09-28_only", "2026-09-28", pages))
+        ranking = "Acme Magazine ranks the credit union a top credit union"
+        titles = {"/newsroom/ranking-2023": ranking, "/newsroom/ranking-2024": ranking}
+        cls.ks = system(snap("01_2026-09-28_only", "2026-09-28", pages, titles))
 
     def test_ordinal_count_from_the_newest_release_wins(self):
         ans = self.ks.answer("An older release says Acme Magazine recognized the credit union for the fourth time. "
@@ -110,6 +112,20 @@ class NewestStatement(unittest.TestCase):
         self.assertNotIn("181,000", ans.text)
         self.assertEqual(paths(ans)[0], "/newsroom/may")
 
+    def test_boilerplate_under_a_product_subheading_is_still_settled_by_the_newest_copy(self):
+        # The older blog copy ranks best; its product subheading does not make it a different fact from the newer
+        # release's copy.
+        title = "Branch office locations at the credit union"
+        blog = (f"2 min read\n\nMarch 3, 2025\n\n# {title}\n\n## Choosing the right credit card\n\n"
+                "The credit union helps members pick a card. It has over 600 employees and 22 branch office locations.\n")
+        news = ("2 min read\n\nMay 5, 2026\n\n# Credit union names a new president\n\nThe credit union named a new president.\n\n"
+                "## About the credit union\n\nIt has over 600 employees and 23 branch office locations.\n")
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", {"/learn/blog/branch-locations": blog, "/newsroom/president": news},
+                         {"/learn/blog/branch-locations": title}))
+        ans = ks.answer("How many branch office locations does the credit union have?")
+        self.assertIn("23", ans.text)
+        self.assertNotIn("22", ans.text)
+
 
 class ProseRates(unittest.TestCase):
     """A figure stated only in prose is read from its most official copy, as the matching sentence."""
@@ -132,6 +148,57 @@ class ProseRates(unittest.TestCase):
         ks = system(snap("01_2026-05-12", "2026-05-12", older, titles), snap("02_2026-09-28", "2026-09-28", newer, titles))
         ans = ks.answer("What rate do personal loans have?")
         self.assertIn("8.99%", ans.text)
+        self.assertNotIn("5.24%", ans.text)
+
+    def test_same_line_on_a_more_official_page_about_another_product_is_not_a_rival(self):
+        # A strictly more official copy of the best sentence could outrank it, but only a copy about the same
+        # product: the auto-loans page's line is another product's figure.
+        pages = {"/personal-loan-offer-lp": "# Personal Loans\n\nRates as low as 8.99% APR.\n",
+                 "/loans/auto-loans": "# Auto Loans\n\nRates as low as 5.24% APR.\n"}
+        titles = {"/personal-loan-offer-lp": "Personal Loans", "/loans/auto-loans": "Auto Loans"}
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", pages, titles))
+        ans = ks.answer("What rate do personal loans have?")
+        self.assertIn("8.99%", ans.text)
+        self.assertNotIn("5.24%", ans.text)
+
+    def test_same_line_in_a_newer_article_about_another_product_is_not_a_rival(self):
+        # A newer dated copy wins only when it is about the same product; the article's headline names the
+        # product a rate sentence under it belongs to.
+        pages = {"/newsroom/personal-loan-rates": release("March 2, 2026", "Credit union lowers personal loan rates",
+                                                          "Rates as low as 8.99% APR.", footer=False),
+                 "/newsroom/auto-loan-rates": release("June 1, 2026", "Credit union lowers auto loan rates",
+                                                      "Rates as low as 5.24% APR.", footer=False)}
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", pages))
+        ans = ks.answer("What rate do personal loans have?")
+        self.assertIn("8.99%", ans.text)
+        self.assertNotIn("5.24%", ans.text)
+
+    def test_a_family_question_does_not_take_a_named_siblings_copy(self):
+        # "Credit Coach" is a personal loan the site's tables name, so its page's line is another product's figure
+        # for a plain "personal loans" question, even when that copy is more official.
+        pages = {"/personal-loan-offer-lp": "# Personal Loans\n\nRates as low as 8.99% APR.\n",
+                 "/loans/credit-coach": "# Credit Coach\n\nRates as low as 8.95% APR.\n",
+                 "/fees": "# Fees\n\nLoan Fees\n\n| Service | Fee |\n| --- | --- |\n| Credit Coach enrollment | $25.00 |\n"}
+        titles = {"/personal-loan-offer-lp": "Personal Loans", "/loans/credit-coach": "Credit Coach"}
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", pages, titles))
+        ans = ks.answer("What rate do personal loans have?")
+        self.assertIn("8.99%", ans.text)
+        self.assertNotIn("8.95%", ans.text)
+
+    def test_article_lead_does_not_bring_in_another_products_rate(self):
+        # The lead paragraph of the article titled with the name asked says what the news is, but a sentence in
+        # it that quotes another product's rate is left out.
+        pages = {"/newsroom/acme-top-lender": release(
+            "August 3, 2026", "Acme Magazine names the credit union a top lender",
+            "SPRINGFIELD, Iowa - Acme Magazine recognized the credit union as one of the top lenders in the state. "
+            "Its auto loan rates start as low as 5.24% APR.",
+            "The recognition from Acme Magazine praised the credit union for its member service and community giving.",
+            footer=False)}
+        ks = system(snap("01_2026-09-28_only", "2026-09-28", pages,
+                         {"/newsroom/acme-top-lender": "Acme Magazine names the credit union a top lender"}))
+        ans = ks.answer("What recognition has the credit union received from Acme Magazine?")
+        self.assertTrue(ans.confident)
+        self.assertIn("top lenders", ans.text)
         self.assertNotIn("5.24%", ans.text)
 
     def test_rate_question_on_an_article_is_not_led_by_its_first_paragraph(self):
