@@ -4,6 +4,9 @@ A knowledge system that answers credit-union member questions from dated website
 **current** value, the right tier, a source, and an honest "I don't know" when the site does not say.
 It is a submission for the interface.ai take-home *"Build a knowledge system that knows what's true now"*.
 
+**Reviewers: start with the one-page [Summary at the top of `NOTES.md`](NOTES.md#summary)** (what it does, how it
+decides what is current, scores including the blind first runs, limits, and the API key).
+
 - **The submission** is [`solution/`](solution/): `solution.py` exposes `build()` following
   [`harness/contract.py`](harness/contract.py); the code lives in [`solution/truthledger/`](solution/truthledger/).
 - **How it decides what is current, its scores and known gaps:** [`NOTES.md`](NOTES.md).

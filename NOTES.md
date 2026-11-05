@@ -2,6 +2,51 @@ Set ANTHROPIC_API_KEY for best results; uses Claude via the Anthropic API.
 
 # NOTES
 
+## Summary
+
+**What it does.** While loading, every page of every crawl becomes dated ledger rows: rate-table
+rows, "Label: value" lines and prose sentences, each remembering its page, page kind and crawl date.
+Every rate row gets a fixed identity card: product family, product name, account kind, term, and
+balance or model-year tier. Each identity then gets a timeline of the values it stated across the
+crawls. A question is read into the same fields and answered from the winning rows, with sources,
+or with an honest "that isn't listed" when the site does not say.
+
+**How it decides what is current.** Different identities are never conflicts (a 12-month certificate
+is not a 6-month one, and an APY is not a rate). Among the copies of one fact, ended offers drop out.
+Then the more official page wins: a dated rate sheet, then a product page, a promotion, a PDF, a press
+release, a blog post and last a calculator. Then the newest printed date wins ("Rates are effective
+as of ..."). A sentence repeated on many dated pages is settled by its newest dated copy. Details:
+"How it decides what is current" below.
+
+**Scores** (kit scorer, accuracy; the final code has zero stale-trap hits on every set):
+
+| Set | Final, key off / on | Blind first run |
+|---|---|---|
+| Public (40) | 0.969 / 0.969 | - |
+| Held-out v1 / v2 / v3 | 0.967 / 1.000 / 0.972 (same on) | 0.679 / 0.663 / 0.819 |
+| Held-out v4 / v5 | 1.000 / 1.000 (same on) | 0.368 / 0.815 |
+| Held-out v6 (slang, typos, comparisons) | 0.344 / 0.844-0.875 | 0.31 off, 0.86 on |
+| Held-out v7 (prose, sources, service) | 0.849 / 0.849 | 0.546 |
+
+Only first runs are blind; later fixes were tuned on these sets. Expect the hidden set to land
+between the blind first runs and the public score. p95 latency is about 0.07 s with the key off
+(sequential public run) and under 2 s with it on; ingest takes about 17-21 s; a full key-on run of
+223 questions (public and v1-v6) costs about $0.02 in API calls.
+
+**Honest limits and how it would generalize.** These parts are generic: the product catalogue
+(families almost every US credit union sells), the truth rules, the identity and timeline model,
+and the AI question understanding. These parts were tuned on this one website: the page-kind URL
+patterns (which paths are news, blog, promotion or calculator), some extraction heuristics for its
+tables and tabs, and thesaurus entries. Onboarding another credit union would take its own held-out
+question set, a page-kind mapping for its URLs, and measuring before trusting the scores.
+Prose questions phrased far from the site's wording are the main remaining miss (see Known gaps).
+
+**API keys.** Set ANTHROPIC_API_KEY for best results; uses Claude via the Anthropic API (Claude Haiku
+5.5, only to restate oddly worded questions; the model never picks or writes a figure). Without a key
+it runs on rules alone.
+
+## API keys and dependencies
+
 **API keys: one, optional: `ANTHROPIC_API_KEY`** (the same variable the kit's scorer reads for its
 `--judge` mode). With it, the system calls **Claude Haiku 5.5 (`claude-haiku-5-5`) through the
 Anthropic API**, a paid API, once per question to understand oddly worded questions (see "AI
